@@ -51,4 +51,5 @@
 ## Workflow follow-up
 
 - Release only after the API and core delegation releases are published.
+- Write a user-oriented README (installation, global/dedicated configuration, per-thermostat exclusion, migration from the core) before releasing.
 - Archive the change after end-to-end validation on a test instance.
