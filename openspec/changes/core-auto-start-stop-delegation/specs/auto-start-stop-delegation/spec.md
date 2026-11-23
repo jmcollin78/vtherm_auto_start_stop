@@ -53,14 +53,19 @@ The core SHALL stop creating its auto-start/stop entities for a thermostat whose
 - **WHEN** a thermostat entry has the legacy configuration flag enabled and carries no migration marker
 - **THEN** the core creates the enable switch and the stop-mode selector as before
 
-### Requirement: Automatic migration at plugin registration
+### Requirement: Automatic migration when delegated
 
-When the external plugin registers and a thermostat is still flagged as using the core feature, the core SHALL mark that thermostat as migrated and clear the legacy flag, after the current level has been made available to the plugin. The migration SHALL NOT block startup and SHALL NOT run before the system has finished starting.
+When the external plugin is loaded and a thermostat is still flagged as using the core feature while an external `auto_start_stop` manager is actually attached to it, the core SHALL mark that thermostat as migrated and clear the legacy flag. The level SHALL be left untouched in the thermostat entry, so the plugin reads it when the user creates its own configuration; the core SHALL NOT copy it into the plugin configuration. A thermostat to which no external manager is attached SHALL NOT be migrated. The migration SHALL NOT block startup and SHALL NOT run before the system has finished starting.
 
-#### Scenario: An existing installation is migrated
+#### Scenario: A delegated thermostat is migrated
 
-- **WHEN** the plugin registers while a thermostat has the legacy flag enabled and no migration marker
-- **THEN** the core records the marker, makes the thermostat's current level available to the plugin, and then clears the legacy flag
+- **WHEN** the plugin is loaded at startup and an external `auto_start_stop` manager is attached to a thermostat whose legacy flag is enabled and which carries no migration marker
+- **THEN** the core records the marker and clears the legacy flag, leaving the level unchanged in the entry
+
+#### Scenario: A thermostat the plugin does not cover keeps its feature
+
+- **WHEN** a thermostat has the legacy flag enabled but no external `auto_start_stop` manager is attached
+- **THEN** the core migrates nothing and the core feature keeps working normally
 
 #### Scenario: Migration is idempotent
 

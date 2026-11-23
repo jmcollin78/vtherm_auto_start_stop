@@ -54,14 +54,21 @@ Rationale: this reproduces exactly the intent already expressed for other featur
 
 Trade-off: an inert object is slightly less obvious than a removed one. Accepted, because it is temporary and commented.
 
-### D3 — Migration is a two-step write, ordered
+### D3 — Migration is a single write, the level stays in place
 
-1. Copy the current level into the plugin's entry (the plugin reads it as its legacy seed).
-2. Write `use_auto_start_stop_feature = False` **and** the marker in the thermostat entry, in one `async_update_entry`.
+The migration writes `use_auto_start_stop_feature = False` **and** the marker in one `async_update_entry`. The legacy level is deliberately **not** copied anywhere and **not** cleared: it stays in the thermostat entry, and the plugin reads it when the user creates its own configuration.
 
-Order matters: the thermostat configuration flow resets the level to `none` whenever the flag is false (`config_flow.py:1322`). Copying first guarantees the value survives.
+Rationale: there is nothing to copy into at migration time. A registered factory creates no config entry, and the plugin may have neither a global nor a dedicated instance yet. Copying would require a cross-integration write into the plugin's entry schema, plus an ordering guarantee, for a value the plugin can read later from its source of truth. Leaving it also makes the two changes consistent: the plugin change reads the legacy level from the thermostat entry.
 
-The write happens only when the flag is `True` and the marker is absent, so the operation is idempotent. It is deferred until `EVENT_HOMEASSISTANT_STARTED`, so a failure cannot slow or block the initial startup.
+The `none` reset at `config_flow.py:1322` does not apply here: it only runs when the user saves through the configuration flow, not on an `async_update_entry`. The level therefore survives the flag being cleared.
+
+### D3b — Migrate only thermostats that are actually delegated
+
+The migration runs at `EVENT_HOMEASSISTANT_STARTED`, after `init_vtherm_links()`, so external managers are attached. It then migrates only the thermostats whose `get_feature_manager("auto_start_stop")` resolves to an attached external manager.
+
+Rationale: `register_feature_manager()` publishes no event (`vtherm_api.py:119`), so "the plugin registered" is not an observable moment. Gating on the attached manager gives a precise, meaningful condition: a thermostat the plugin does not cover keeps a working core feature instead of silently losing it. A covered thermostat is migrated on the start following the creation of its plugin configuration.
+
+Trade-off: a thermostat newly covered by the plugin loses its core entities at the next restart, not immediately. Accepted: the core flag only affects entity creation and manager activity, both of which are re-evaluated at load.
 
 ### D4 — Marker on the thermostat entry, not on the plugin entry
 
