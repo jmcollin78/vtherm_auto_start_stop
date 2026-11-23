@@ -110,7 +110,7 @@ No change is required on the core side for this: the double refresh is already t
 - **Level loss if the copy step is skipped**: guarded by ordering (D3) and by copying before writing the flag.
 - **Inert manager hiding a real bug**: if the external manager fails to attach after the flag is cleared, the thermostat silently has no auto-start/stop. Mitigated by the plugin's `supports()` contract and by the fact that the marker is only written when the plugin actually registered.
 - **Rename breaking the cleanup filter**: mitigated by the suffix-based match (D5).
-- **Dependency on the API change**: the core cannot raise its `vtherm_api` constraint before the API release exists. Sequencing is a hard prerequisite, not a preference.
+- **Dependency on the API change**: the core cannot raise its `vtherm_api` constraint to `0.13.0` before that API release exists. Sequencing is a hard prerequisite, not a preference.
 
 ## Migration Plan
 

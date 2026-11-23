@@ -13,7 +13,7 @@
 
 ## 3. Release
 
-- [ ] 3.1 Bump the package version as a minor release and verify the version is readable from `vtherm_api.__version__`
+- [ ] 3.1 Bump the package version from `0.12.0` to `0.13.0` as a minor release and verify the version is readable from `vtherm_api.__version__`
 - [ ] 3.2 Verify the full API test suite passes locally with the fake thermostat
 
 ## Workflow follow-up

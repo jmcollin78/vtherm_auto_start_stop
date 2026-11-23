@@ -9,7 +9,7 @@ An external feature manager can be refreshed on every control cycle, but it cann
 - Add `async_request_state_refresh()` to the thermostat runtime contract exposed to plugins: it forces a change and recomputes the thermostat state, so a plugin decision becomes effective without waiting for the next cycle.
 - Add two read-only runtime facts: `has_valve_regulation` (a thermostat regulated by a valve cannot host the feature, matching the core eligibility) and `vtherm_hvac_modes` (the HVAC modes the thermostat actually accepts, used to validate a stop mode).
 - Document the rule that a manager reading the thermostat clock must use the runtime clock, never a local clock, so two refreshes in one cycle stay deduplicated.
-- **BREAKING** for the API only: the version bump is mandatory; the core must raise its minimum `vtherm_api` constraint in the same release train.
+- **BREAKING** for the API only: the version bump (`0.12.0` to `0.13.0`) is mandatory; the core must raise its minimum `vtherm_api` constraint in the same release train.
 - No behavior change for existing plugins: the new members are additions to an existing protocol.
 
 ## Capabilities

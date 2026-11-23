@@ -29,7 +29,7 @@
 
 ## 5. Dependency and integration
 
-- [ ] 5.1 Raise the `vtherm_api` minimum constraint in `manifest.json` to the released version, and verify the integration loads with the pinned version installed
+- [ ] 5.1 Raise the `vtherm_api` minimum constraint in `manifest.json` to `0.13.0`, and verify the integration loads with the pinned version installed
 - [ ] 5.2 Run the full integration test suite and verify no existing auto-start/stop test regresses
 - [ ] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level preserved, the core entities removed, and the external manager driving the stop decision
 
