@@ -55,17 +55,40 @@ The core SHALL stop creating its auto-start/stop entities for a thermostat whose
 
 ### Requirement: Automatic migration when delegated
 
-When the external plugin is loaded and a thermostat is still flagged as using the core feature while an external `auto_start_stop` manager is actually attached to it, the core SHALL mark that thermostat as migrated and clear the legacy flag. The level SHALL be left untouched in the thermostat entry, so the plugin reads it when the user creates its own configuration; the core SHALL NOT copy it into the plugin configuration. A thermostat to which no external manager is attached SHALL NOT be migrated. The migration SHALL NOT block startup and SHALL NOT run before the system has finished starting.
+When the external plugin is loaded and an external `auto_start_stop` manager is attached to a thermostat still flagged as using the core feature, the core SHALL record a migration marker on that thermostat and clear the legacy flag. A thermostat to which no external manager is attached SHALL NOT be migrated.
 
 #### Scenario: A delegated thermostat is migrated
 
 - **WHEN** the plugin is loaded at startup and an external `auto_start_stop` manager is attached to a thermostat whose legacy flag is enabled and which carries no migration marker
-- **THEN** the core records the marker and clears the legacy flag, leaving the level unchanged in the entry
+- **THEN** the core records the marker and clears the legacy flag
 
 #### Scenario: A thermostat the plugin does not cover keeps its feature
 
 - **WHEN** a thermostat has the legacy flag enabled but no external `auto_start_stop` manager is attached
 - **THEN** the core migrates nothing and the core feature keeps working normally
+
+#### Scenario: Plugin removal does not restore the core feature
+
+- **WHEN** the plugin is removed while thermostats carry the migration marker
+- **THEN** the core does not re-enable its own feature and the legacy flag stays cleared, leaving the user to re-enable it deliberately
+
+### Requirement: Legacy level left to the plugin
+
+The core SHALL leave the auto-start/stop level untouched in the thermostat entry and SHALL NOT copy it into the plugin configuration, so that the plugin reads it when the user creates its own configuration.
+
+#### Scenario: The migrated thermostat keeps its level
+
+- **WHEN** the core migrates a thermostat whose entry carries an auto-start/stop level
+- **THEN** the level is unchanged in the thermostat entry and no plugin configuration is written by the core
+
+### Requirement: Deferred and non-blocking migration
+
+The migration SHALL run only after the system has finished starting, SHALL be idempotent, and SHALL NOT block startup when it fails for one thermostat.
+
+#### Scenario: Migration runs after startup
+
+- **WHEN** the migration step executes
+- **THEN** it runs after Home Assistant has finished starting, never during entity setup
 
 #### Scenario: Migration is idempotent
 
@@ -76,11 +99,6 @@ When the external plugin is loaded and a thermostat is still flagged as using th
 
 - **WHEN** the migration fails for one thermostat
 - **THEN** the failure is reported in the log and the remaining thermostats and the system startup are unaffected
-
-#### Scenario: Plugin removal does not restore the core feature
-
-- **WHEN** the plugin is removed while thermostats carry the migration marker
-- **THEN** the core does not re-enable its own feature and the legacy flag stays cleared, leaving the user to re-enable it deliberately
 
 ### Requirement: Orphan entity cleanup
 

@@ -25,6 +25,6 @@ None. `vtherm_api` has no spec in this repository yet, so the whole contract is 
 ## Impact
 
 - `vtherm_api` (`src/vtherm_api/`): `interfaces.py` (two properties, one coroutine), `__init__.py` exports if any, version bump, tests.
-- `versatile_thermostat`: implementation of the new members on the thermostat entity; `manifest.json` minimum version raised once the API release is published.
+- `versatile_thermostat`: implementation of the new members on the thermostat entity (`BaseThermostat`): `async_request_state_refresh()` mirrors the inline core path, and `has_valve_regulation` aliases the existing `have_valve_regulation` fact; `manifest.json` minimum version raised once the API release is published.
 - `vtherm_auto_start_stop`: consumer of the new contract; no code in this change.
 - Sequencing: this change must be released before `core-auto-start-stop-delegation` is testable outside a local dev container.

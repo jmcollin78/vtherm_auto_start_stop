@@ -45,6 +45,7 @@
 ## 7. Integration verification
 
 - [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity
+  - This is the validation point of `core-auto-start-stop-delegation` task 5.3, which is blocked until this task runs. Report the outcome back there.
 - [ ] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager on reload and the installation keeps running
 - [ ] 7.3 Run the integration test suite and verify no test fails
 

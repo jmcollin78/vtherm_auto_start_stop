@@ -32,8 +32,10 @@
 - [x] 5.1 Raise the `vtherm_api` minimum constraint in `manifest.json` to `0.13.0`, and verify the integration loads with the pinned version installed
 - [x] 5.2 Run the full integration test suite and verify no existing auto-start/stop test regresses
 - [ ] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level preserved, the core entities removed, and the external manager driving the stop decision
+  - **Blocked**: requires the plugin to exist. This cannot be executed before `vtherm-auto-start-stop-plugin` task 7.1 is implemented. The core side is ready and unit-tested; only the cross-integration check is deferred.
 
 ## Workflow follow-up
 
 - Publish the core release only after the `vtherm_api` release is available.
+- Do not archive this change while 5.3 is blocked: the end-to-end delegation check is the last gate. It is validated by `vtherm-auto-start-stop-plugin` task 7.1, then reported back here.
 - Archive the change after the plugin change has been validated against it.

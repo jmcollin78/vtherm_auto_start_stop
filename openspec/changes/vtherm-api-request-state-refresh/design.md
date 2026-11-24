@@ -22,6 +22,7 @@ A third, non-API issue matters for the port: an external manager is refreshed tw
 - No generic "HVAC mode override" mechanism. The core keeps its arbitration; the plugin feeds the facts the arbitration consumes.
 - No exposure of underlying entities, requested state objects, or the state manager.
 - No change to the core auto-start/stop feature in this change.
+- The core implementation of the two new members is in scope (it is what makes the contract testable end to end); it ships in the same release train as the raised `manifest.json` constraint.
 
 ## Decisions
 
