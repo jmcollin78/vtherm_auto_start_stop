@@ -1,0 +1,19 @@
+{
+    "domain": "vtherm_auto_start_stop",
+    "name": "VTherm Auto Start/Stop",
+    "codeowners": [
+        "@jmcollin78"
+    ],
+    "config_flow": true,
+    "dependencies": [
+        "versatile_thermostat"
+    ],
+    "documentation": "https://github.com/jmcollin78/vtherm_auto_start_stop",
+    "integration_type": "service",
+    "iot_class": "calculated",
+    "issue_tracker": "https://github.com/jmcollin78/vtherm_auto_start_stop/issues",
+    "requirements": [
+        "vtherm_api>=0.13.0"
+    ],
+    "version": "0.1.0"
+}

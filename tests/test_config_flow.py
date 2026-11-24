@@ -1,0 +1,313 @@
+"""Config flow behaviour (tasks 2.2, 2.3, 2.4, 6.1, 6.2)."""
+
+from __future__ import annotations
+
+import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.vtherm_auto_start_stop.const import (
+    CONF_ENABLED,
+    CONF_EXCLUDED,
+    CONF_LEVEL,
+    CONF_STOP_MODE,
+    CONF_TARGET_ENTITY,
+    CONF_VTHERM_UNIQUE_ID,
+    DOMAIN,
+    LEVEL_FAST,
+    LEVEL_MEDIUM,
+    LEVEL_SLOW,
+    STOP_MODE_DRY,
+)
+
+THERMOSTAT_ENTITY = "climate.thermostat"
+THERMOSTAT_UNIQUE_ID = "vtherm-uid-1"
+
+
+@pytest.fixture(autouse=True)
+def custom_integrations(enable_custom_integrations):  # noqa: PT004
+    """Load the custom component from this repository."""
+    return enable_custom_integrations
+
+
+@pytest.fixture(autouse=True)
+def mock_versatile_thermostat(hass):
+    """Mock the core integration the plugin declares as a dependency.
+
+    The plugin only needs the core to be *loaded*: it talks to it through
+    ``vtherm_api`` and the entity registry, never through its module internals.
+    Mocking it keeps the flow tests focused on the plugin's own branches.
+    """
+    from pytest_homeassistant_custom_component.common import (
+        MockModule,
+        mock_integration,
+        mock_platform,
+    )
+
+    mock_integration(hass, MockModule("versatile_thermostat"))
+    mock_platform(hass, "versatile_thermostat.config_flow", None)
+    return None
+
+
+class MockModule:
+    """A minimal integration module for the dependency mock."""
+
+    def __init__(self, domain: str) -> None:
+        self.domain = domain
+        self.name = domain
+        self.version = "0.0.0"
+        self.dependencies: list[str] = []
+        self.requirements: list[str] = []
+        self.config_flow = False
+        self.documentation = "https://example.com"
+        self.issue_tracker = None
+        self.iot_class = "local_polling"
+        self.integration_type = "service"
+        self.logger = None
+
+    def async_setup_entry(self, *args, **kwargs):
+        """Nothing to set up: the core is mocked."""
+
+    async def async_unload_entry(self, *args, **kwargs):
+        return True
+
+
+def register_thermostat(hass: HomeAssistant, thermostat_type="thermostat_over_climate"):
+    """Register a thermostat entity and its registry entry."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "climate",
+        "versatile_thermostat",
+        THERMOSTAT_UNIQUE_ID,
+        suggested_object_id="thermostat",
+    )
+    hass.states.async_set(
+        THERMOSTAT_ENTITY,
+        "heat",
+        {
+            "friendly_name": "Thermostat",
+            "configuration": {"type": thermostat_type, "have_valve_regulation": False},
+        },
+    )
+
+
+async def start_flow(hass: HomeAssistant):
+    """Start a user flow."""
+    return await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+
+
+async def test_first_flow_is_the_global_branch(hass):
+    """Task 2.2: with no entry, the flow goes straight to the global step."""
+    register_thermostat(hass)
+    result = await start_flow(hass)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "global"
+
+
+async def test_global_entry_is_created_and_unique(hass):
+    """Task 2.2: a second global instance is refused."""
+    register_thermostat(hass)
+    result = await start_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_LEVEL: LEVEL_SLOW,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_LEVEL] == LEVEL_SLOW
+
+    # A second global entry cannot be created: the unique id is the domain.
+    second = await start_flow(hass)
+    assert second["type"] == FlowResultType.MENU
+    assert second["step_id"] == "menu"
+
+
+async def test_menu_offers_a_thermostat_and_an_exclusion(hass):
+    """Task 2.3/2.5: the second flow asks what to configure."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    register_thermostat(hass)
+    result = await start_flow(hass)
+    assert result["type"] == FlowResultType.MENU
+    assert set(result["menu_options"]) == {"thermostat", "exclusion"}
+
+
+async def test_dedicated_entry_stores_the_thermostat_unique_id(hass):
+    """Task 2.3: the entry stores the thermostat unique id, not the entity id."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    register_thermostat(hass)
+
+    result = await start_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "thermostat"}
+    )
+    assert result["step_id"] == "thermostat"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
+    )
+    assert result["step_id"] == "thermostat_options"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_LEVEL: LEVEL_FAST,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_VTHERM_UNIQUE_ID] == THERMOSTAT_UNIQUE_ID
+    assert result["data"][CONF_LEVEL] == LEVEL_FAST
+    assert CONF_EXCLUDED not in result["data"]
+
+
+async def test_ineligible_thermostat_reports_its_reason(hass):
+    """Task 2.4: the error names the reason."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    register_thermostat(hass, thermostat_type="thermostat_over_switch")
+
+    result = await start_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "thermostat"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "thermostat"
+    assert result["errors"] == {CONF_TARGET_ENTITY: "not_over_climate"}
+
+
+async def test_exclusion_entry_carries_no_parameter(hass):
+    """Task 2.5: an exclusion creates a dedicated entry with no value."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    register_thermostat(hass)
+
+    result = await start_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "exclusion"}
+    )
+    assert result["step_id"] == "exclusion"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        CONF_VTHERM_UNIQUE_ID: THERMOSTAT_UNIQUE_ID,
+        CONF_EXCLUDED: True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Migration from the core configuration (tasks 6.1, 6.2)
+# ---------------------------------------------------------------------------
+
+
+def register_core_entry(hass: HomeAssistant, level: str) -> MockConfigEntry:
+    """Register a thermostat owning a core config entry carrying a legacy level."""
+    from homeassistant.helpers import entity_registry as er
+
+    core_entry = MockConfigEntry(
+        domain="versatile_thermostat",
+        data={"thermostat_type": "thermostat_over_climate"},
+        options={"auto_start_stop_level": level},
+        unique_id=THERMOSTAT_UNIQUE_ID,
+        entry_id="core-entry",
+    )
+    core_entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "climate",
+        "versatile_thermostat",
+        THERMOSTAT_UNIQUE_ID,
+        suggested_object_id="thermostat",
+        config_entry=core_entry,
+    )
+    hass.states.async_set(
+        THERMOSTAT_ENTITY,
+        "heat",
+        {
+            "friendly_name": "Thermostat",
+            "configuration": {
+                "type": "thermostat_over_climate",
+                "have_valve_regulation": False,
+            },
+        },
+    )
+    return core_entry
+
+
+async def reach_thermostat_options(hass: HomeAssistant):
+    """Walk the flow up to the dedicated values step."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "thermostat"}
+    )
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
+    )
+
+
+async def test_legacy_level_seeds_the_dedicated_instance(hass):
+    """Task 6.1: the migrated level replaces the plugin default."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    register_core_entry(hass, LEVEL_FAST)
+
+    result = await reach_thermostat_options(hass)
+    assert result["step_id"] == "thermostat_options"
+    schema = result["data_schema"].schema
+    defaults = {
+        str(key): key.default() if callable(key.default) else key.default
+        for key in schema
+    }
+    assert defaults[CONF_LEVEL] == LEVEL_FAST
+
+
+async def test_an_existing_dedicated_instance_is_not_overwritten(hass):
+    """Task 6.2: an existing dedicated entry keeps its own level."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: THERMOSTAT_UNIQUE_ID,
+            CONF_LEVEL: LEVEL_MEDIUM,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+        unique_id=f"{DOMAIN}-{THERMOSTAT_UNIQUE_ID}",
+    ).add_to_hass(hass)
+    register_core_entry(hass, LEVEL_FAST)
+
+    # The dedicated entry already exists: the flow aborts instead of starting a
+    # new instance seeded from the legacy level.
+    result = await reach_thermostat_options(hass)
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"

@@ -1,0 +1,11 @@
+[project]
+name = "vtherm-auto-start-stop"
+version = "0.1.0"
+description = "Auto start/stop plugin for Versatile Thermostat"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

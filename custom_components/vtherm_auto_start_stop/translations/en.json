@@ -1,0 +1,85 @@
+{
+  "title": "VTherm Auto Start/Stop",
+  "config": {
+    "step": {
+      "global": {
+        "title": "Auto start/stop defaults",
+        "description": "Defaults applied to every eligible thermostat that has no dedicated instance.",
+        "data": {
+          "auto_start_stop_level": "Level",
+          "auto_start_stop_stop_mode": "Stop mode",
+          "enabled": "Enabled"
+        }
+      },
+      "thermostat": {
+        "title": "Thermostat",
+        "description": "Select the thermostat that gets its own auto start/stop configuration.",
+        "data": {
+          "target_entity": "Thermostat"
+        }
+      },
+      "thermostat_options": {
+        "title": "Thermostat settings",
+        "description": "Values of this thermostat. Fields left at the default inherit the global instance.",
+        "data": {
+          "auto_start_stop_level": "Level",
+          "auto_start_stop_stop_mode": "Stop mode",
+          "enabled": "Enabled"
+        }
+      },
+      "exclusion": {
+        "title": "Exclude a thermostat",
+        "description": "The thermostat will not use the auto start/stop feature at all, exactly as if it had never been enabled. The core feature is cleared for it.",
+        "data": {
+          "target_entity": "Thermostat"
+        }
+      },
+      "menu": {
+        "title": "What do you want to configure?",
+        "menu_options": {
+          "thermostat": "A thermostat",
+          "exclusion": "Exclude a thermostat"
+        }
+      }
+    },
+    "error": {
+      "not_over_climate": "This thermostat is not an over_climate thermostat, so the auto start/stop cannot be applied to it.",
+      "valve_regulation": "This thermostat is regulated by a valve, which the auto start/stop feature does not support.",
+      "invalid_entity": "The selected thermostat no longer exists."
+    },
+    "abort": {
+      "already_configured": "This thermostat already has an auto start/stop configuration.",
+      "exclusion_not_configurable": "An exclusion carries no parameter. Remove it and configure the thermostat instead."
+    }
+  },
+  "selector": {
+    "auto_start_stop_level": {
+      "options": {
+        "auto_start_stop_none": "None",
+        "auto_start_stop_very_slow": "Very slow",
+        "auto_start_stop_slow": "Slow",
+        "auto_start_stop_medium": "Medium",
+        "auto_start_stop_fast": "Fast"
+      }
+    },
+    "auto_start_stop_stop_mode": {
+      "options": {
+        "off": "Off",
+        "fan_only": "Fan only",
+        "dry": "Dry"
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "auto_start_stop_enable": {
+        "name": "Auto start/stop"
+      }
+    },
+    "select": {
+      "auto_start_stop_stop_mode": {
+        "name": "Auto start/stop stop mode"
+      }
+    }
+  }
+}
