@@ -70,6 +70,7 @@ class AutoStartStopManager:
         # Capture the clock of the last refresh, so a transition can be
         # detected even when the flag is restored from a previous state.
         self._last_refresh: datetime | None = None
+        self._stop_modes_cache: list[str] | None = None
 
     # ------------------------------------------------------------------
     # InterfaceFeatureManager
@@ -161,6 +162,10 @@ class AutoStartStopManager:
             self._enabled,
         )
         ensure_entities(self._hass, self._thermostat.unique_id)
+        # Seed the stop-mode cache with the value resolved at registration so
+        # the first refresh does not publish merely to populate it. The list
+        # can later grow once the underlyings are attached (see refresh_state).
+        self._stop_modes_cache = self.stop_modes
         async_dispatcher_send(
             self._hass,
             f"{SIGNAL_MANAGER_UPDATED}_{self._thermostat.unique_id}",
@@ -178,6 +183,16 @@ class AutoStartStopManager:
         """Run one detection cycle and return whether a stop is detected."""
         if not self._configured or not self._controls_ready:
             return False
+
+        # Republish when the accepted stop modes change (e.g. the underlyings
+        # finish initialising and their HVAC modes become available). This
+        # mirrors the core's ``async_my_climate_changed`` callback: the list
+        # can only grow (modes added), never shrink, so a single re-publish
+        # after the underlying is ready is sufficient.
+        current_modes = self.stop_modes
+        if current_modes != self._stop_modes_cache:
+            self._stop_modes_cache = current_modes
+            self._publish_update()
 
         if not self._enabled:
             # Disabled: stop accumulating and release any applied stop.

@@ -238,6 +238,36 @@ async def test_stop_modes_filtered_by_accepted_hvac_modes(
     assert manager.stop_modes == [STOP_MODE_OFF]
 
 
+async def test_refresh_state_republishes_when_stop_modes_change(
+    manager_factory, thermostat, add_global_entry
+):
+    """When the underlying's hvac_modes become available mid-lifecycle, the manager
+    must re-publish so the select entity is notified of the new option set."""
+    add_global_entry()
+    # Start with the pre-underlying-attached hvac list (the default build_hvac_list).
+    thermostat.vtherm_hvac_modes = ["off", "heat", "cool"]
+    manager = install(manager_factory, thermostat)
+    assert manager.stop_modes == [STOP_MODE_OFF]
+
+    # First refresh: the cache is initialised from the current value; no
+    # republication is expected because nothing has changed.
+    before = thermostat.attribute_updates
+    await manager.refresh_state()
+    assert thermostat.attribute_updates == before
+
+    # The underlyings are now initialised and expose their accepted hvac_modes:
+    # a new fan_only and dry appear. refresh_state must detect the change and
+    # re-publish so the select entity learns of the new options.
+    thermostat.vtherm_hvac_modes = ["off", "heat", "cool", "fan_only", "dry"]
+    before = thermostat.attribute_updates
+    await manager.refresh_state()
+    assert thermostat.attribute_updates == before + 1
+
+    # A second refresh with an unchanged list does not re-publish.
+    await manager.refresh_state()
+    assert thermostat.attribute_updates == before + 1
+
+
 async def test_changing_the_stop_mode_reapplies_the_stop(
     manager_factory, thermostat, add_global_entry
 ):
@@ -357,9 +387,18 @@ async def test_bootstrap_waits_for_both_controls_and_applies_mode_first(
     state.enabled = True
     manager = manager_factory(thermostat)
     manager.post_init({})
-    manager.restore_state(State(thermostat.entity_id, "off", {
-        MANAGER_ATTRIBUTES_KEY: {ATTR_IS_STOP_DETECTED: True, ATTR_ACCUMULATED_ERROR: -4.5}
-    }))
+    manager.restore_state(
+        State(
+            thermostat.entity_id,
+            "off",
+            {
+                MANAGER_ATTRIBUTES_KEY: {
+                    ATTR_IS_STOP_DETECTED: True,
+                    ATTR_ACCUMULATED_ERROR: -4.5,
+                }
+            },
+        )
+    )
     thermostat.current_temperature = 24
     thermostat.last_temperature_slope = 6
     for _ in range(10):

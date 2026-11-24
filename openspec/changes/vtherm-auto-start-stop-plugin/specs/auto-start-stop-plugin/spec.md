@@ -230,7 +230,7 @@ The plugin SHALL publish the same auto-start/stop attribute section as the core 
 
 ### Requirement: Plugin entities
 
-The plugin SHALL create exactly one enable switch and one stop-mode select for each eligible thermostat covered by a global or dedicated configuration. A global configuration alone SHALL suffice for every eligible thermostat, even with its enable default false. The select SHALL offer off and supported fan_only/dry, never disabled or heat/cool/auto.
+The plugin SHALL create exactly one enable switch and one stop-mode select for each eligible thermostat covered by a global or dedicated configuration. A global configuration alone SHALL suffice for every eligible thermostat, even with its enable default false. The select SHALL offer off and supported fan_only/dry, never disabled or heat/cool/auto. The select's options SHALL reflect the modes the thermostat currently accepts.
 
 #### Scenario: Global configuration alone creates two controls per thermostat
 
@@ -254,6 +254,13 @@ The plugin SHALL create exactly one enable switch and one stop-mode select for e
 - **WHEN** a thermostat supports off, heat and fan_only but not dry
 - **THEN** the select options are off and fan_only in that order
 - **AND** disabled, heat and dry are not offered
+
+#### Scenario: Stop-mode options update once the accepted hvac modes settle
+
+- **WHEN** a manager was registered before the underlying climate of an over_climate attached, so the select initially exposes only the fallback options
+- **AND** the underlying later attaches and exposes more accepted hvac modes such as fan_only or dry
+- **THEN** the plugin re-publishes the select state so it gains the newly supported stop modes
+- **AND** the user does not need to restart or interact with the control to see the updated options
 
 #### Scenario: Controls and stop modes are localized
 
