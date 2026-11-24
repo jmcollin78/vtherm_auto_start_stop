@@ -28,6 +28,7 @@ from custom_components.vtherm_auto_start_stop.const import (
     STOP_MODE_OFF,
 )
 from vtherm_api.const import EventType
+from custom_components.vtherm_auto_start_stop.models import initial_control_defaults
 
 VT_UNIQUE_ID = "vtherm-uid-1"
 
@@ -36,6 +37,13 @@ def install(manager_factory, thermostat, add_global_entry=None, **kwargs):
     """Attach a manager to the thermostat, as the core would."""
     manager = manager_factory(thermostat)
     manager.post_init(thermostat.entry_infos)
+    if manager.is_configured and not manager.controls_ready:
+        entries = thermostat.hass.data[DOMAIN]["entries"]
+        values = initial_control_defaults(entries)
+        for entry in entries.values():
+            if entry.get("vtherm_unique_id") == thermostat.unique_id:
+                values.update({key: entry[key] for key in values if key in entry})
+        manager.restore_entity_state(values[CONF_ENABLED], values[CONF_STOP_MODE])
     return manager
 
 
@@ -337,6 +345,42 @@ async def test_entity_state_is_reconciled(
     manager.restore_entity_state(False, STOP_MODE_DRY)
     assert manager.enabled is False
     assert manager.stop_mode == STOP_MODE_DRY
+
+
+async def test_bootstrap_waits_for_both_controls_and_applies_mode_first(
+    manager_factory, thermostat, add_global_entry, monkeypatch
+):
+    from custom_components.vtherm_auto_start_stop.registry import control_state
+
+    add_global_entry(level=LEVEL_FAST, enabled=True)
+    state = control_state(thermostat.hass, thermostat.unique_id)
+    state.enabled = True
+    manager = manager_factory(thermostat)
+    manager.post_init({})
+    manager.restore_state(State(thermostat.entity_id, "off", {
+        MANAGER_ATTRIBUTES_KEY: {ATTR_IS_STOP_DETECTED: True, ATTR_ACCUMULATED_ERROR: -4.5}
+    }))
+    thermostat.current_temperature = 24
+    thermostat.last_temperature_slope = 6
+    for _ in range(10):
+        thermostat.advance(1)
+        assert await manager.refresh_state() is False
+    assert manager.controls_ready is False
+    assert manager.enabled is False
+    assert manager.is_auto_stop_detected is False
+    assert manager._algorithm.accumulated_error == -4.5
+    assert thermostat.refresh_requests == 0
+    original = manager.async_set_enabled
+
+    async def enable_after_mode(enabled):
+        assert manager.stop_mode == STOP_MODE_DRY
+        assert manager.controls_ready is True
+        await original(enabled)
+
+    monkeypatch.setattr(manager, "async_set_enabled", enable_after_mode)
+    state.stop_mode = STOP_MODE_DRY
+    await manager.async_initialize_controls(state.enabled, state.stop_mode)
+    assert manager.enabled is True
 
 
 def test_none_level_is_not_detected(manager_factory, thermostat, add_global_entry):

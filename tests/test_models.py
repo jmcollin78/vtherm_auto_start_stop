@@ -1,4 +1,4 @@
-"""Layered configuration resolution and dedicated enable overrides."""
+"""Parameter inheritance and initialization-only control defaults."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from custom_components.vtherm_auto_start_stop.models import (
     default_config,
     effective_config,
     has_dedicated_instance,
+    initial_control_defaults,
     legacy_level,
     normalize_level,
     normalize_stop_mode,
@@ -61,8 +62,6 @@ def dedicated_entry(level=LEVEL_FAST, stop_mode=STOP_MODE_DRY, enabled=True):
             {"global": global_entry()},
             {
                 CONF_LEVEL: LEVEL_MEDIUM,
-                CONF_STOP_MODE: STOP_MODE_FAN_ONLY,
-                CONF_ENABLED: True,
             },
         ),
         # Dedicated only: the defaults are completed by the dedicated layer.
@@ -70,8 +69,6 @@ def dedicated_entry(level=LEVEL_FAST, stop_mode=STOP_MODE_DRY, enabled=True):
             {"ded": dedicated_entry()},
             {
                 CONF_LEVEL: LEVEL_FAST,
-                CONF_STOP_MODE: STOP_MODE_DRY,
-                CONF_ENABLED: True,
             },
         ),
         # Both: the dedicated layer wins on every key it defines.
@@ -79,8 +76,6 @@ def dedicated_entry(level=LEVEL_FAST, stop_mode=STOP_MODE_DRY, enabled=True):
             {"global": global_entry(), "ded": dedicated_entry()},
             {
                 CONF_LEVEL: LEVEL_FAST,
-                CONF_STOP_MODE: STOP_MODE_DRY,
-                CONF_ENABLED: True,
             },
         ),
     ],
@@ -101,21 +96,24 @@ def test_dedicated_layer_inherits_undefined_keys(enabled):
     }
     config = effective_config(entries, VT_A)
     assert config[CONF_LEVEL] == LEVEL_FAST
-    assert config[CONF_STOP_MODE] == STOP_MODE_FAN_ONLY
-    assert config[CONF_ENABLED] is enabled
+    assert config == {CONF_LEVEL: LEVEL_FAST}
+    assert initial_control_defaults(entries) == {
+        CONF_STOP_MODE: STOP_MODE_FAN_ONLY, CONF_ENABLED: enabled
+    }
 
 
 @pytest.mark.parametrize("global_enabled", [False, True])
 @pytest.mark.parametrize("dedicated_enabled", [False, True])
-def test_dedicated_enable_state_wins(global_enabled, dedicated_enabled):
+def test_legacy_controls_are_not_parameter_overrides(global_enabled, dedicated_enabled):
     entries = {
         "global": global_entry(enabled=global_enabled),
         "ded": dedicated_entry(enabled=dedicated_enabled),
     }
     config = effective_config(entries, VT_A)
     assert config is not None
-    assert config[CONF_ENABLED] is dedicated_enabled
-    assert effective_config(entries, VT_B)[CONF_ENABLED] is global_enabled
+    assert config == {CONF_LEVEL: LEVEL_FAST}
+    assert initial_control_defaults(entries)[CONF_ENABLED] is global_enabled
+    assert effective_config(entries, VT_B) == {CONF_LEVEL: LEVEL_MEDIUM}
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -123,7 +121,10 @@ def test_dedicated_configuration_works_without_global(enabled):
     entries = {"ded": dedicated_entry(enabled=enabled)}
     config = effective_config(entries, VT_A)
     assert config is not None
-    assert config[CONF_ENABLED] is enabled
+    assert config == {CONF_LEVEL: LEVEL_FAST}
+    assert initial_control_defaults(entries) == {
+        CONF_ENABLED: default_config()[CONF_ENABLED], CONF_STOP_MODE: "off"
+    }
     assert effective_config(entries, VT_B) is None
 
 
@@ -132,7 +133,7 @@ def test_dedicated_configuration_works_without_global(enabled):
     [{"global": {}}, {"ded": {CONF_VTHERM_UNIQUE_ID: VT_A}}],
 )
 def test_entry_without_parameters_uses_plugin_defaults(entries):
-    assert effective_config(entries, VT_A) == default_config()
+    assert effective_config(entries, VT_A) == {CONF_LEVEL: default_config()[CONF_LEVEL]}
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -142,7 +143,7 @@ def test_removing_dedicated_restores_global(enabled):
         "ded": dedicated_entry(enabled=not enabled),
     }
     entries.pop("ded")
-    assert effective_config(entries, VT_A) == global_entry(enabled=enabled)
+    assert effective_config(entries, VT_A) == {CONF_LEVEL: LEVEL_MEDIUM}
 
 
 def test_removing_global_keeps_only_dedicated_configuration():
@@ -150,7 +151,7 @@ def test_removing_global_keeps_only_dedicated_configuration():
     entries.pop("global")
     config = effective_config(entries, VT_A)
     assert config[CONF_LEVEL] == LEVEL_FAST
-    assert config[CONF_ENABLED] is False
+    assert config == {CONF_LEVEL: LEVEL_FAST}
     assert effective_config(entries, VT_B) is None
 
 

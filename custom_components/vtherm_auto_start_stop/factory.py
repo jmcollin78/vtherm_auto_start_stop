@@ -20,14 +20,17 @@ from typing import TYPE_CHECKING
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
+    DATA_CREATED,
     DATA_ENTRIES,
     DATA_FACTORY_REGISTERED,
+    DATA_INELIGIBLE,
     DOMAIN,
     MANAGER_NAME,
     THERMOSTAT_TYPE_CLIMATE,
 )
 from .manager import AutoStartStopManager
 from .models import effective_config
+from .registry import async_remove_controls, get_manager
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -86,8 +89,22 @@ class AutoStartStopManagerFactory:
             _LOGGER.info(
                 "%s - auto start/stop not attached: %s", thermostat.name, reason
             )
+            data = self._hass.data.setdefault(DOMAIN, {})
+            data.setdefault(DATA_INELIGIBLE, set()).add(thermostat.unique_id)
+            manager = get_manager(self._hass, thermostat.unique_id)
+            if manager is not None:
+                manager.stop_listening()
+            if thermostat.unique_id in data.get(DATA_CREATED, {}):
+                self._hass.async_create_task(
+                    async_remove_controls(
+                        self._hass, thermostat.unique_id, remove_registry=True
+                    )
+                )
             return False
 
+        self._hass.data.get(DOMAIN, {}).get(DATA_INELIGIBLE, set()).discard(
+            thermostat.unique_id
+        )
         entries = self._hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {})
         config = effective_config(entries, thermostat.unique_id)
         if config is None:

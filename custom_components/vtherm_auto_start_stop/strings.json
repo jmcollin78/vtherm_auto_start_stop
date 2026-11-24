@@ -4,27 +4,25 @@
         "step": {
             "global": {
                 "title": "Auto start/stop defaults",
-                "description": "Defaults applied to every eligible thermostat that has no dedicated instance.",
+                "description": "Shared detection parameters for every eligible thermostat. Enable and stop mode initialize entities without saved states only; later default edits do not reset existing entities.",
                 "data": {
                     "auto_start_stop_level": "Level",
-                    "auto_start_stop_stop_mode": "Stop mode",
-                    "enabled": "Enabled"
+                    "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
+                    "enabled": "Initially enabled (new entities only)"
                 }
             },
             "thermostat": {
                 "title": "Thermostat",
-                "description": "Select the thermostat that gets its own auto start/stop configuration.",
+                "description": "Select a thermostat needing different detection parameters. Enable and stop mode are remembered by its switch and select, without a dedicated configuration.",
                 "data": {
                     "target_entity": "Thermostat"
                 }
             },
             "thermostat_options": {
                 "title": "Thermostat settings",
-                "description": "These values override the global defaults for this thermostat, including the enable state.",
+                "description": "Detection parameters override global values for this thermostat without changing its saved enable state or stop mode.",
                 "data": {
-                    "auto_start_stop_level": "Level",
-                    "auto_start_stop_stop_mode": "Stop mode",
-                    "enabled": "Enabled"
+                    "auto_start_stop_level": "Level"
                 }
             }
         },
@@ -41,11 +39,11 @@
         "step": {
             "init": {
                 "title": "Auto start/stop settings",
-                "description": "Change this configuration. Dedicated thermostat settings take precedence over global defaults.",
+                "description": "Dedicated detection parameters override global values. Enable and stop-mode defaults, when shown, initialize new entities only and never reset saved states.",
                 "data": {
                     "auto_start_stop_level": "Level",
-                    "auto_start_stop_stop_mode": "Stop mode",
-                    "enabled": "Enabled"
+                    "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
+                    "enabled": "Initially enabled (new entities only)"
                 }
             }
         }

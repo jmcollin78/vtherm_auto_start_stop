@@ -52,33 +52,36 @@ ERROR_VALVE_REGULATION = "valve_regulation"
 ERROR_INVALID_ENTITY = "invalid_entity"
 
 
-def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
+def _options_schema(
+    defaults: dict[str, Any], *, parameters_only: bool = False
+) -> vol.Schema:
     """Schema of the configuration values of a global or dedicated entry."""
-    return vol.Schema(
-        {
-            vol.Optional(CONF_LEVEL, default=defaults[CONF_LEVEL]): (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=LEVELS,
-                        translation_key="auto_start_stop_level",
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+    fields = {
+        vol.Optional(CONF_LEVEL, default=defaults[CONF_LEVEL]): (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=LEVELS,
+                    translation_key="auto_start_stop_level",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
-            ),
-            vol.Optional(CONF_STOP_MODE, default=defaults[CONF_STOP_MODE]): (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=STOP_MODES,
-                        translation_key="auto_start_stop_stop_mode",
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+            )
+        ),
+        vol.Optional(CONF_STOP_MODE, default=defaults[CONF_STOP_MODE]): (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=STOP_MODES,
+                    translation_key="auto_start_stop_stop_mode",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
-            ),
-            vol.Optional(CONF_ENABLED, default=defaults[CONF_ENABLED]): (
-                selector.BooleanSelector()
-            ),
-        }
-    )
+            )
+        ),
+        vol.Optional(CONF_ENABLED, default=defaults[CONF_ENABLED]): (
+            selector.BooleanSelector()
+        ),
+    }
+    if parameters_only:
+        fields = {key: value for key, value in fields.items() if key.schema == CONF_LEVEL}
+    return vol.Schema(fields)
 
 
 def _target_schema() -> vol.Schema:
@@ -202,7 +205,8 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         return self.async_show_form(
-            step_id="thermostat_options", data_schema=_options_schema(defaults)
+            step_id="thermostat_options",
+            data_schema=_options_schema(defaults, parameters_only=True),
         )
 
     # -- helpers ------------------------------------------------------------
@@ -289,5 +293,8 @@ class AutoStartStopOptionsFlow(OptionsFlow):
         defaults = _global_defaults(self.hass)
         defaults.update({key: current[key] for key in defaults if key in current})
         return self.async_show_form(
-            step_id="init", data_schema=_options_schema(defaults)
+            step_id="init",
+            data_schema=_options_schema(
+                defaults, parameters_only=bool(current.get(CONF_VTHERM_UNIQUE_ID))
+            ),
         )

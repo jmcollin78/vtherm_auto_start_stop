@@ -4,27 +4,25 @@
     "step": {
       "global": {
         "title": "Valeurs par défaut du start/stop automatique",
-        "description": "Valeurs appliquées à tous les thermostats éligibles qui n'ont pas d'instance dédiée.",
+        "description": "Paramètres de détection partagés par tous les thermostats éligibles. L'activation et le mode d'arrêt initialisent uniquement les entités sans état mémorisé ; modifier ces valeurs ne réinitialise pas les entités existantes.",
         "data": {
           "auto_start_stop_level": "Niveau",
-          "auto_start_stop_stop_mode": "Mode d'arrêt",
-          "enabled": "Activé"
+          "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
+          "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
       },
       "thermostat": {
         "title": "Thermostat",
-        "description": "Sélectionnez le thermostat qui reçoit sa propre configuration de start/stop automatique.",
+        "description": "Sélectionnez un thermostat nécessitant des paramètres de détection différents. Son switch et son sélecteur mémorisent l'activation et le mode sans configuration dédiée.",
         "data": {
           "target_entity": "Thermostat"
         }
       },
       "thermostat_options": {
         "title": "Paramètres du thermostat",
-        "description": "Ces valeurs remplacent les valeurs globales pour ce thermostat, y compris l'état activé ou désactivé.",
+        "description": "Ces paramètres de détection remplacent les valeurs globales pour ce thermostat sans modifier son activation ni son mode d'arrêt mémorisés.",
         "data": {
-          "auto_start_stop_level": "Niveau",
-          "auto_start_stop_stop_mode": "Mode d'arrêt",
-          "enabled": "Activé"
+          "auto_start_stop_level": "Niveau"
         }
       }
     },
@@ -41,11 +39,11 @@
     "step": {
       "init": {
         "title": "Paramètres du start/stop automatique",
-        "description": "Modifiez cette configuration. Les paramètres propres au thermostat sont prioritaires sur les valeurs globales.",
+        "description": "Les paramètres de détection dédiés sont prioritaires sur les valeurs globales. Les valeurs initiales d'activation et de mode, lorsqu'elles sont affichées, concernent uniquement les nouvelles entités et ne réinitialisent jamais les états mémorisés.",
         "data": {
           "auto_start_stop_level": "Niveau",
-          "auto_start_stop_stop_mode": "Mode d'arrêt",
-          "enabled": "Activé"
+          "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
+          "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
       }
     }

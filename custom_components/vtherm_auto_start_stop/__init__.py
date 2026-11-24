@@ -10,7 +10,6 @@ refreshes it each cycle and resolves it as the auto-start/stop decision owner.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -19,9 +18,9 @@ from homeassistant.helpers import entity_registry as er
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
-    CONF_ENTITY_IDS_ADOPTED,
     CONF_VTHERM_UNIQUE_ID,
     DATA_ENTRIES,
+    DATA_UNLOADING,
     DOMAIN,
     PLATFORMS,
     VT_DOMAIN,
@@ -31,8 +30,14 @@ from .factory import (
     register_factory,
     unregister_factory,
 )
-from .models import CONFIG_KEYS, entry_config
-from .registry import ensure_entities, prepare_entity_ids, reset_entities
+from .models import PARAMETER_KEYS, entry_config
+from .registry import (
+    async_reconcile_entities,
+    covered_thermostats,
+    entity_owner,
+    ensure_all_entities,
+    prepare_entity_ids,
+)
 
 _LOGGER = get_vtherm_logger(__name__)
 
@@ -57,10 +62,9 @@ async def _reload_thermostats(
         target = entry_config(source_entry).get(CONF_VTHERM_UNIQUE_ID)
 
     overrides: set[str] = set()
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        config = entry_config(entry)
+    for config in _entries(hass).values():
         unique_id = config.get(CONF_VTHERM_UNIQUE_ID)
-        if unique_id and all(key in config for key in CONFIG_KEYS):
+        if unique_id and all(key in config for key in PARAMETER_KEYS):
             overrides.add(unique_id)
 
     tasks = []
@@ -88,25 +92,35 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one global or dedicated entry."""
-    values = entry_config(entry)
-    unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
-    if unique_id:
-        prepare_entity_ids(hass, entry, unique_id)
+    _entries(hass)[entry.entry_id] = entry_config(entry)
+    complete = False
+    try:
+        await async_reconcile_entities(hass)
+        for unique_id in covered_thermostats(hass):
+            owner = entity_owner(hass, unique_id)
+            if owner is not None:
+                prepare_entity_ids(hass, owner, unique_id)
 
         @callback
-        def core_entity_removed(event: Event) -> None:
+        def registry_changed(event: Event) -> None:
             if event.data["action"] == "remove":
-                ensure_entities(hass, unique_id)
+                ensure_all_entities(hass)
+            elif event.data["entity_id"].startswith("climate."):
+                hass.async_create_task(async_reconcile_entities(hass))
 
         entry.async_on_unload(
-            hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, core_entity_removed)
+            hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, registry_changed)
         )
-    _entries(hass)[entry.entry_id] = entry_config(entry)
-    register_factory(hass, AutoStartStopManagerFactory(hass))
-    entry.async_on_unload(entry.add_update_listener(_async_update_options))
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    if hass.state == CoreState.running:
-        await _reload_thermostats(hass, entry)
+        register_factory(hass, AutoStartStopManagerFactory(hass))
+        entry.async_on_unload(entry.add_update_listener(_async_update_options))
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        if hass.state == CoreState.running:
+            await _reload_thermostats(hass, entry)
+        complete = True
+    finally:
+        if not complete:
+            _entries(hass).pop(entry.entry_id, None)
+            await async_reconcile_entities(hass)
     return True
 
 
@@ -115,11 +129,9 @@ async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None
     previous = _entries(hass).get(entry.entry_id, {})
     current = entry_config(entry)
     _entries(hass)[entry.entry_id] = current
-    if previous.get(CONF_ENTITY_IDS_ADOPTED) != current.get(
-        CONF_ENTITY_IDS_ADOPTED
-    ) and all(
+    if all(
         previous.get(key) == current.get(key)
-        for key in (*CONFIG_KEYS, CONF_VTHERM_UNIQUE_ID)
+        for key in (*PARAMETER_KEYS, CONF_VTHERM_UNIQUE_ID)
     ):
         return
     await _reload_thermostats(hass, entry)
@@ -127,15 +139,17 @@ async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an entry, removing the factory once no entry remains."""
+    unloading = hass.data.setdefault(DOMAIN, {}).setdefault(DATA_UNLOADING, set())
+    unloading.add(entry.entry_id)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        unloading.discard(entry.entry_id)
         return False
-
-    unique_id = entry_config(entry).get(CONF_VTHERM_UNIQUE_ID)
-    if unique_id:
-        reset_entities(hass, unique_id)
+    await async_reconcile_entities(hass, remove_registry=False)
     _entries(hass).pop(entry.entry_id, None)
+    unloading.discard(entry.entry_id)
     if not _entries(hass):
         unregister_factory(hass)
-        hass.data.pop(DOMAIN, None)
     await _reload_thermostats(hass, entry)
+    if not _entries(hass):
+        hass.data.pop(DOMAIN, None)
     return True

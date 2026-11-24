@@ -36,9 +36,7 @@ from .const import (
     ATTR_LAST_SWITCH_DATE,
     ATTR_LEVEL,
     ATTR_STOP_MODE,
-    CONF_ENABLED,
     CONF_LEVEL,
-    CONF_STOP_MODE,
     DATA_MANAGERS,
     DOMAIN,
     HVAC_OFF_REASON_AUTO_START_STOP,
@@ -50,7 +48,7 @@ from .const import (
     STOP_MODE_OFF,
 )
 from .models import effective_config, normalize_level, normalize_stop_mode
-from .registry import ensure_entities
+from .registry import control_state, ensure_entities
 
 _LOGGER = get_vtherm_logger(__name__)
 
@@ -63,6 +61,7 @@ class AutoStartStopManager:
         self._hass = hass
         self._configured = False
         self._enabled = False
+        self._controls_ready = False
         self._stop_mode = STOP_MODE_OFF
         self._is_stop_detected = False
         self._algorithm = AutoStartStopDetectionAlgorithm(
@@ -94,7 +93,7 @@ class AutoStartStopManager:
     @property
     def is_detected(self) -> bool:
         """Return whether a stop is currently detected."""
-        return self._is_stop_detected
+        return self.enabled and self._is_stop_detected
 
     # The core state arbitration and the core entities read the auto-start/stop
     # manager through the core names, not the generic interface names. The core
@@ -104,12 +103,12 @@ class AutoStartStopManager:
     @property
     def is_auto_stop_detected(self) -> bool:
         """Return the detection flag under the name the core arbitration reads."""
-        return self._is_stop_detected
+        return self.is_detected
 
     @property
     def auto_start_stop_enable(self) -> bool:
         """Return the enable state under the name the core entities read."""
-        return self._enabled
+        return self.enabled
 
     async def set_auto_start_stop_enable(self, enabled: bool) -> None:
         """Apply an enable change coming from the core entity."""
@@ -144,8 +143,9 @@ class AutoStartStopManager:
             return
 
         self._configured = True
-        self._enabled = bool(config.get(CONF_ENABLED, True))
-        self._stop_mode = normalize_stop_mode(config.get(CONF_STOP_MODE))
+        state = control_state(self._hass, self._thermostat.unique_id)
+        if state.enabled is not None and state.stop_mode is not None:
+            self.restore_entity_state(state.enabled, state.stop_mode)
         level = normalize_level(config.get(CONF_LEVEL))
         self._algorithm.set_level(level)
         self._algorithm.reset_switch_delay()
@@ -172,13 +172,11 @@ class AutoStartStopManager:
 
     def stop_listening(self) -> None:
         """Release the live manager registration."""
-        managers = self._hass.data.get(DOMAIN, {}).get(DATA_MANAGERS, {})
-        if managers.get(self._thermostat.unique_id) is self:
-            managers.pop(self._thermostat.unique_id, None)
+        self._dispose("thermostat unloaded")
 
     async def refresh_state(self) -> bool:
         """Run one detection cycle and return whether a stop is detected."""
-        if not self._configured:
+        if not self._configured or not self._controls_ready:
             return False
 
         if not self._enabled:
@@ -237,7 +235,9 @@ class AutoStartStopManager:
         if not self._configured:
             return
 
-        self._is_stop_detected = bool(section.get(ATTR_IS_STOP_DETECTED, False))
+        self._is_stop_detected = self.enabled and bool(
+            section.get(ATTR_IS_STOP_DETECTED, False)
+        )
         last_switch: datetime | None = None
         raw = section.get(ATTR_LAST_SWITCH_DATE)
         if isinstance(raw, str):
@@ -265,7 +265,7 @@ class AutoStartStopManager:
             return
 
         attributes[MANAGER_ATTRIBUTES_KEY] = {
-            ATTR_ENABLE: self._enabled,
+            ATTR_ENABLE: self.enabled,
             ATTR_LEVEL: self._algorithm.level,
             ATTR_DTMIN: self._algorithm.dt_min,
             ATTR_ACCUMULATED_ERROR: self._algorithm.accumulated_error,
@@ -273,7 +273,7 @@ class AutoStartStopManager:
                 self._algorithm.accumulated_error_threshold
             ),
             ATTR_LAST_SWITCH_DATE: self._algorithm.last_switch_date,
-            ATTR_IS_STOP_DETECTED: self._is_stop_detected,
+            ATTR_IS_STOP_DETECTED: self.is_detected,
             ATTR_STOP_MODE: self._stop_mode,
         }
 
@@ -301,7 +301,11 @@ class AutoStartStopManager:
     @property
     def enabled(self) -> bool:
         """Return the persisted enable state."""
-        return self._enabled
+        return self._controls_ready and self._enabled
+
+    @property
+    def controls_ready(self) -> bool:
+        return self._controls_ready
 
     @property
     def stop_mode(self) -> str:
@@ -345,7 +349,7 @@ class AutoStartStopManager:
         )
 
     async def async_set_enabled(self, enabled: bool) -> None:
-        """Apply a new enable state; the switch owns configuration persistence."""
+        """Apply a new enable state; its switch owns persistence."""
         if self._enabled == enabled:
             return
         self._enabled = enabled
@@ -359,7 +363,7 @@ class AutoStartStopManager:
         self._thermostat.update_custom_attributes()
 
     async def async_set_stop_mode(self, stop_mode: str) -> None:
-        """Apply a new stop mode; the select owns configuration persistence."""
+        """Apply a new stop mode; its select owns persistence."""
         stop_mode = normalize_stop_mode(stop_mode)
         if self._stop_mode == stop_mode:
             return
@@ -369,14 +373,41 @@ class AutoStartStopManager:
             f"Auto start/stop stop mode changed to {stop_mode}",
         )
         self._stop_mode = stop_mode
-        if self._is_stop_detected:
+        if self.is_detected:
             await self._thermostat.async_request_state_refresh()
         self._thermostat.update_custom_attributes()
 
     def restore_entity_state(self, enabled: bool, stop_mode: str) -> None:
         """Reconcile the manager with a supplied enable state and stop mode."""
+        if stop_mode not in self.stop_modes:
+            _LOGGER.warning(
+                "%s - restored stop mode %s is unsupported; using off", self, stop_mode
+            )
+            stop_mode = STOP_MODE_OFF
         self._enabled = enabled
+        if not enabled:
+            self._is_stop_detected = False
         self._stop_mode = normalize_stop_mode(stop_mode)
+        self._controls_ready = True
+        state = control_state(self._hass, self._thermostat.unique_id)
+        state.enabled, state.stop_mode = enabled, self._stop_mode
+
+    async def async_initialize_controls(self, enabled: bool, stop_mode: str) -> None:
+        """Apply a complete restored pair before enabling detection."""
+        if stop_mode not in self.stop_modes:
+            _LOGGER.warning(
+                "%s - restored stop mode %s is unsupported; using off", self, stop_mode
+            )
+            stop_mode = STOP_MODE_OFF
+            control_state(self._hass, self._thermostat.unique_id).stop_mode = stop_mode
+        ready = self._controls_ready
+        if not ready:
+            self._enabled = False
+        await self.async_set_stop_mode(stop_mode)
+        self._controls_ready = True
+        if not ready or self._enabled != enabled:
+            await self.async_set_enabled(enabled)
+        self._publish_update()
 
     # ------------------------------------------------------------------
     # Internals
@@ -387,6 +418,7 @@ class AutoStartStopManager:
         if self._configured:
             _LOGGER.info("%s - auto start/stop disabled: %s", self, reason)
         self._configured = False
+        self._controls_ready = False
         self._enabled = False
         self._is_stop_detected = False
         managers = self._hass.data.get(DOMAIN, {}).get(DATA_MANAGERS, {})

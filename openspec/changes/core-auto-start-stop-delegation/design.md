@@ -84,11 +84,11 @@ Rationale: `unique_id` is built on the device name, which changes when a thermos
 
 ### D5b — Keep historical IDs after core registry cleanup
 
-The thermostat entry is the durable source of historical switch/select entity IDs, just as it already retains the legacy level. Store these IDs before removal rather than deriving them from a display name. The plugin may initially use only its global configuration, then create a dedicated entry much later; the metadata must survive that interval and restarts.
+The thermostat entry is the durable source of historical switch/select entity IDs, just as it already retains the legacy level. Store these IDs before removal rather than deriving them from a display name. The plugin uses them when creating controls under global-only or dedicated coverage; the metadata must survive startup ordering, later parameter-configuration changes and restarts.
 
 Identity collection uses the same ownership predicate as cleanup, preferring current core rows. For an already-delegated entry with missing or partial metadata, recover missing identities from retained deleted-registry rows without overwriting remembered IDs. Complete metadata makes subsequent runs no-ops. Recovery cannot reconstruct a customized ID after both durable metadata and deleted-registry history are unavailable.
 
-The core still removes its own entities; dedicated plugin ownership replaces them, and global-only thermostats still receive no plugin entities. Detach live core entities before removing registry rows, as in the existing asynchronous cleanup.
+The core still removes its own entities; the plugin replaces them with exactly one enable switch and one stop-mode select for every covered eligible thermostat, including global-only coverage with disabled initialization defaults. No dedicated plugin configuration is required or created for control-state changes. These states persist in the entities. Detach live core entities before removing registry rows, as in the existing asynchronous cleanup. The card and existing dashboard bindings remain unchanged; read-only card-source inspection is allowed.
 
 ### D6 — No automatic restore on plugin removal
 

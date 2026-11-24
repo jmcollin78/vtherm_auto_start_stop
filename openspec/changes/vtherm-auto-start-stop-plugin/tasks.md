@@ -8,17 +8,17 @@
 
 ## 2. Configuration model
 
-Tasks reopened below describe the approved simplification; their earlier exclusion-based implementation is not completion of the revised behavior. No exclusion entries exist in the test installation, so no migration or compatibility implementation is planned.
+Reopened tasks separate detection parameters from persistent per-thermostat entity states. One global configuration must suffice for shared parameters; individual control actions never create or require dedicated configurations. No exclusion entries exist, so no exclusion-data migration is planned.
 
-- [x] 2.1 Simplify `models.py` to global and dedicated entries only, removing the exclusion short-circuit while preserving the defaults-to-global-to-dedicated cascade; verify all four global/dedicated enable-state combinations, missing-field inheritance, a dedicated instance without a global instance, and no effective configuration when neither exists
-- [x] 2.2 Implement the config flow with the global branch (`unique_id` = domain), and verify a second global instance is refused
-- [x] 2.3 Route every addition after the first entry directly to the thermostat selector and then dedicated settings, without the intent menu; verify the first entry still configures global defaults, both settings forms expose enabled, duplicate dedicated entries are refused, and the dedicated entry stores the thermostat unique id rather than its entity id
+- [x] 2.1 Separate detection-parameter resolution and initialization-only control defaults from live entity states; verify parameter inheritance, missing fields, dedicated parameter coverage without a global entry, and no coverage when neither exists
+- [x] 2.2 Keep the single global flow and explicitly label enable/mode fields as defaults for entities without saved states; verify duplicate-global rejection and that later default edits do not reset existing entities but do initialize new ones
+- [x] 2.3 Keep direct thermostat selection for optional dedicated detection-parameter entries, not individual enable/mode settings; verify stable thermostat identity, duplicate rejection and that switch/select actions never invoke configuration creation
 - [x] 2.4 Add the eligibility check producing explicit errors for a thermostat that is not `over_climate` and for a valve-regulated thermostat, and verify both error messages name their reason
 - [x] 2.5 Remove the exclusion flow, schema, flag, helpers, options abort and obsolete module descriptions, fixtures and tests; remove the configure-or-exclude menu and exclusion labels from strings and both translations, and verify obsolete identifiers and user-facing choices are absent without adding a migration or compatibility branch
-- [x] 2.6 Verify disabled global and dedicated configurations remain effective configurations with an attached manager, configured=true and enabled=false attributes, frozen accumulated error, and no automatic stop; replace the former exclusion-detachment assertions with these regression tests
-- [x] 2.7 Verify with multiple thermostats that a dedicated disabled configuration overrides global enabled defaults and a dedicated enabled configuration overrides global disabled defaults, that unrelated eligible thermostats keep following global changes, and that valve-regulated thermostats never receive a manager in either global state
-- [x] 2.8 Verify deleting a dedicated instance restores the global values on the next load for both global enable states, and deleting the global instance leaves dedicated instances operational over plugin defaults while thermostats without a dedicated instance lose their configuration
-- [x] 2.9 Update the user README with the direct configuration flow, the global/dedicated enable-state matrix, return to global values after deletion, disabled-but-configured attributes and the unchanged valve-regulation restriction; verify all examples match the configuration-flow and resolution tests
+- [x] 2.6 Verify global-only thermostats initialized as disabled still have managers, configured=true attributes and both controls; verify switching a thermostat off retains them, freezes accumulated error and requests no automatic stop
+- [x] 2.7 Verify multiple globally covered thermostats can retain different enable/mode states across restart without adding entries or modifying global defaults; verify later initialization-default edits leave all existing states intact while inherited detection-parameter changes still apply, and valves remain excluded
+- [x] 2.8 Verify adding/removing dedicated parameter entries preserves existing control IDs and states while changing parameter inheritance; verify global removal preserves dedicated coverage but removes controls and managers from otherwise uncovered thermostats
+- [x] 2.9 Update the README for global-only two-control coverage, persistent individual states, initialization-only defaults, optional parameter configurations, lifecycle behavior and the unchanged valve restriction; verify the examples and unchanged-card service calls against the revised tests
 
 ## 3. Algorithm port
 
@@ -28,7 +28,7 @@ Tasks reopened below describe the approved simplification; their earlier exclusi
 
 ## 4. Manager
 
-- [x] 4.1 Implement the manager with the same stable name, the enable state, the stop mode and the detection flag, and verify `factory.supports()` returns false when there is no effective configuration
+- [x] 4.1 Reconcile the manager with entity-owned control states while retaining its stable name and coverage-based support check; verify startup waits for restored mode then enable, parameter edits and manager replacement do not reset states, and no coverage still means no attachment
 - [x] 4.2 Re-check eligibility from the runtime facts in `supports()` and verify an ineligible thermostat gets no manager with a log entry naming the reason
 - [x] 4.3 Call the immediate refresh only when the detection flag changes, and verify with a test that a cycle without transition issues no refresh request
 - [x] 4.4 Verify a detected stop applies the configured stop mode in the same cycle, and verify the reverse on release
@@ -36,13 +36,15 @@ Tasks reopened below describe the approved simplification; their earlier exclusi
 
 ## 5. Entities
 
-The combined-select implementation is superseded by the verified production interface. Tasks below are reopened for independent controls and exact historical entity-ID compatibility.
+The former dedicated-only, configuration-authoritative implementation is superseded. These tasks must implement two persistent controls for every covered eligible thermostat, including global-only coverage. VTherm UI Card and existing dashboard bindings must remain unmodified; source inspection is read-only.
 
-- [x] 5.1 Forward switch and select platforms, restore the enable-switch implementation and pair creation, and remove switch deletion; verify each dedicated entry owns one switch and one select even when disabled, global-only thermostats own neither, and reload/delete/recreate never duplicates or loses a control
-- [x] 5.2 Implement switch-only activation without changing the saved stop mode; verify switch-off freezes accumulated error and releases a detected stop, switch-on uses the saved mode, and both controls follow configuration edits and restart rather than stale restored states
-- [x] 5.3 Return the select to supported stop modes only, with no disabled option or implicit activation; verify changing off/fan_only/dry preserves either enable state, capability filtering is unchanged, and unsupported choices fail before configuration or runtime mutation
-- [x] 5.4 Adopt the remembered historical core entity IDs exactly, reusing existing plugin registry entries and preserving later user renames; verify the production example IDs, custom IDs, delayed dedicated setup, core cleanup ordering, idempotency, and explicit conflicts without silent _2 suffixes or changes to unrelated owners
-- [x] 5.5 Restore switch/select names and stop-mode translations in strings and English/French resources, remove the combined disabled option, and update the README for independent controls and historical-ID compatibility; verify translation keys match both platforms and documented card service actions work with unchanged entity IDs
+- [x] 5.1 Create exactly one switch/select pair per covered eligible thermostat from the global platforms, including false enable defaults and later thermostat discovery; verify N eligible thermostats yield 2N controls without dedicated entries, while valve-regulated, other-type and uncovered thermostats receive none
+- [x] 5.2 Persist enable state in each switch without updating configuration entries or the saved mode; verify local-only actions, restart persistence, frozen accumulation and stop release when off, and saved-mode-before-enable startup
+- [x] 5.3 Persist stop mode in each select without updating configuration entries or activation; verify off/supported fan_only/dry filtering, no disabled option, state retention across restart, explicit invalid-service rejection and reported safe reconciliation of invalid restored modes
+- [x] 5.4 Adopt exact historical IDs for global-only as well as dedicated coverage, reuse proven-owned plugin rows and migrate adoption metadata per entity; verify production/custom IDs, later renames, former dedicated markers, core cleanup ordering, idempotency and conflicts without suffixes or changes to unrelated owners
+- [x] 5.5 Verify production-compatible English/French control names, option values, attributes and unchanged card calls under both coverage shapes; card code and dashboard bindings must remain untouched, and read-only source inspection must not become a required adapter or card change
+- [x] 5.6 Implement global/dedicated control ownership handover and coverage cleanup through official Home Assistant APIs; verify parameter-entry additions/removals, global removal with surviving dedicated entries, reloads and eligibility changes preserve valid control identities/states without duplicate or orphaned pairs
+- [x] 5.7 Implement native versioned entity restoration and one-time migration of older configuration-backed choices; verify explicit false/dry beats obsolete UI state during migration only, later actions beat legacy fields, partial saved states are retained, and no dedicated entry or global override dictionary is created for control persistence
 
 ## 6. Migration from the core configuration
 
@@ -52,12 +54,13 @@ The combined-select implementation is superseded by the verified production inte
 
 ## 7. Integration verification
 
-- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core-owned auto-start/stop entity; then verify direct dedicated configuration, both global/local enable overrides, the restored switch and stop-mode select at the exact historical entity IDs, unchanged card activation/deactivation and mode selection, and return to global values after dedicated removal
+- [ ] 7.1 Verify end-to-end on a delegated-core test instance with only the global configuration: every eligible thermostat has its exact historical switch/select IDs even with false initialization defaults, unchanged cards control thermostats independently and choices survive restart without new entries; then verify legacy-level seeding for optional dedicated parameters, parameter-only inheritance changes, stable controls on dedicated removal, initialization-only default edits and no core-owned duplicates
   - This is the validation point of `core-auto-start-stop-delegation` task 5.3, which is blocked until this task runs. Report the outcome back there.
-  - Automated regressions cover the revised configuration flow, overrides, controls and entry removal. They do not replace this check against the actual delegated core; no deployment or on-instance validation was performed during this apply.
-- [x] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager on reload and the installation keeps running
-- [x] 7.3 Re-run the plugin integration test suite and the affected core migration regressions after restoring independent controls; verify no failures in direct-flow, disabled-configuration, separate switch/select actions, exact-ID adoption, upgrade and unchanged eligibility coverage
-  - Verified: 217 plugin tests and 50 core migration/feature-manager/stop-mode tests pass. Both OpenSpec changes pass strict validation, and both repositories pass whitespace checks. These automated results do not replace task 7.1.
+  - Automated regressions do not replace this check against the actual delegated core. This planning revision performs no implementation, deployment or on-instance validation.
+- [x] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager and active plugin controls on reload while unrelated thermostats keep working
+- [x] 7.3 Re-run the plugin suite and affected core regressions after implementing global coverage and entity-owned persistence; verify entry counts, initialization-only defaults, ownership handover, exact IDs, unchanged card interactions, migration and valve exclusions
+  - Previous baseline: 217 plugin and 50 core tests passed before this planning revision. Those results do not establish the newly specified global-only entities or entity-state persistence and must be rerun after implementation.
+  - Revised implementation verification: 249 plugin tests and 50 affected core tests passed. Both changes pass strict OpenSpec validation; actual-instance verification remains tracked separately in 7.1.
 
 ## Workflow follow-up
 

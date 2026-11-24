@@ -9,6 +9,7 @@ from custom_components.vtherm_auto_start_stop.const import (
     CONF_VTHERM_UNIQUE_ID,
     DATA_ADD_ENTITIES,
     DATA_CREATED,
+    DATA_ENTRIES,
     DOMAIN,
     PLATFORMS,
     PLATFORM_SELECT,
@@ -48,8 +49,10 @@ def captured(monkeypatch):
     return created
 
 
-def add_platforms(fake_hass, unique_id=VT, created=None):
-    """Register the callbacks of both dedicated platforms."""
+def add_platforms(fake_hass, unique_id="ded", created=None):
+    """Register callbacks and loaded coverage."""
+    for entry in fake_hass.config_entries.entries:
+        fake_hass.data[DOMAIN][DATA_ENTRIES][entry.entry_id] = entry.data
     for platform in PLATFORMS:
         register_callback(fake_hass, platform, unique_id, created[platform].extend)
 
@@ -68,11 +71,11 @@ def test_entities_created_for_a_dedicated_entry(fake_hass, captured, enabled):
     ensure_entities(fake_hass, VT)
 
     assert all(len(entities) == 1 for entities in captured.values())
-    assert fake_hass.data[DOMAIN][DATA_CREATED][VT] is True
+    assert fake_hass.data[DOMAIN][DATA_CREATED][VT] == "ded"
 
 
-def test_no_entity_without_a_dedicated_entry(fake_hass, captured):
-    """Task 5.1: a thermostat configured only globally owns no entity."""
+def test_no_entity_without_coverage(fake_hass, captured):
+    """No entry means no controls."""
     add_platforms(fake_hass, created=captured)
     ensure_entities(fake_hass, VT)
 
@@ -97,10 +100,11 @@ def test_entities_wait_for_both_platform_callbacks(fake_hass, captured):
     fake_hass.config_entries.entries.append(
         make_entry({CONF_VTHERM_UNIQUE_ID: VT}, entry_id="ded")
     )
-    register_callback(fake_hass, PLATFORM_SWITCH, VT, captured[PLATFORM_SWITCH].extend)
+    fake_hass.data[DOMAIN][DATA_ENTRIES]["ded"] = {CONF_VTHERM_UNIQUE_ID: VT}
+    register_callback(fake_hass, PLATFORM_SWITCH, "ded", captured[PLATFORM_SWITCH].extend)
     ensure_entities(fake_hass, VT)
     assert all(entities == [] for entities in captured.values())
-    register_callback(fake_hass, PLATFORM_SELECT, VT, captured[PLATFORM_SELECT].extend)
+    register_callback(fake_hass, PLATFORM_SELECT, "ded", captured[PLATFORM_SELECT].extend)
     ensure_entities(fake_hass, VT)
     assert all(len(entities) == 1 for entities in captured.values())
 
@@ -125,9 +129,9 @@ def test_missing_callbacks_are_ignored(fake_hass, captured):
 
 def test_unloading_both_platforms_releases_all_callbacks(fake_hass, captured):
     add_platforms(fake_hass, created=captured)
-    unregister_callback(fake_hass, PLATFORM_SWITCH, VT)
-    assert set(fake_hass.data[DOMAIN][DATA_ADD_ENTITIES][VT]) == {PLATFORM_SELECT}
-    unregister_callback(fake_hass, PLATFORM_SELECT, VT)
+    unregister_callback(fake_hass, PLATFORM_SWITCH, "ded")
+    assert set(fake_hass.data[DOMAIN][DATA_ADD_ENTITIES]["ded"]) == {PLATFORM_SELECT}
+    unregister_callback(fake_hass, PLATFORM_SELECT, "ded")
     assert fake_hass.data[DOMAIN][DATA_ADD_ENTITIES] == {}
 
 

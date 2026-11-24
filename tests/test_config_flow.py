@@ -148,9 +148,8 @@ async def test_additional_entry_opens_the_thermostat_selector(hass):
 
 
 @pytest.mark.parametrize("thermostat_type", ["over_climate", "thermostat_over_climate"])
-@pytest.mark.parametrize("enabled", [False, True])
 async def test_dedicated_entry_stores_the_thermostat_unique_id(
-    hass, thermostat_type, enabled
+    hass, thermostat_type
 ):
     """Task 2.3: the entry stores the thermostat unique id, not the entity id."""
     MockConfigEntry(
@@ -166,20 +165,19 @@ async def test_dedicated_entry_stores_the_thermostat_unique_id(
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
     )
     assert result["step_id"] == "thermostat_options"
-    assert CONF_ENABLED in result["data_schema"].schema
+    assert set(result["data_schema"].schema) == {CONF_LEVEL}
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
             CONF_LEVEL: LEVEL_FAST,
-            CONF_STOP_MODE: STOP_MODE_DRY,
-            CONF_ENABLED: enabled,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_VTHERM_UNIQUE_ID] == THERMOSTAT_UNIQUE_ID
     assert result["data"][CONF_LEVEL] == LEVEL_FAST
-    assert result["data"][CONF_ENABLED] is enabled
+    assert CONF_ENABLED not in result["data"]
+    assert CONF_STOP_MODE not in result["data"]
 
 
 @pytest.mark.parametrize(
@@ -214,8 +212,8 @@ async def test_ineligible_thermostat_reports_its_reason(
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-async def test_dedicated_enable_can_be_edited(hass, enabled):
-    """Options override values without losing the thermostat identity."""
+async def test_dedicated_parameters_can_be_edited(hass, enabled):
+    """Only parameters are editable, retaining legacy fields for migration."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -228,23 +226,22 @@ async def test_dedicated_enable_can_be_edited(hass, enabled):
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "init"
-    assert CONF_ENABLED in result["data_schema"].schema
+    assert set(result["data_schema"].schema) == {CONF_LEVEL}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            CONF_LEVEL: LEVEL_SLOW,
-            CONF_STOP_MODE: STOP_MODE_DRY,
-            CONF_ENABLED: enabled,
+            CONF_LEVEL: LEVEL_FAST,
         },
     )
     await hass.async_block_till_done()
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.options[CONF_ENABLED] is enabled
+    assert entry_config(entry)[CONF_LEVEL] == LEVEL_FAST
+    assert entry_config(entry)[CONF_ENABLED] is (not enabled)
     assert entry_config(entry)[CONF_VTHERM_UNIQUE_ID] == THERMOSTAT_UNIQUE_ID
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-async def test_dedicated_settings_start_from_global_enable_state(hass, enabled):
+async def test_dedicated_settings_do_not_expose_enable_or_mode(hass, enabled):
     MockConfigEntry(
         domain=DOMAIN,
         data={CONF_ENABLED: enabled},
@@ -258,7 +255,7 @@ async def test_dedicated_settings_start_from_global_enable_state(hass, enabled):
 
     result = await reach_thermostat_options(hass)
     defaults = result["data_schema"]({})
-    assert defaults[CONF_ENABLED] is enabled
+    assert set(defaults) == {CONF_LEVEL}
 
 
 # ---------------------------------------------------------------------------

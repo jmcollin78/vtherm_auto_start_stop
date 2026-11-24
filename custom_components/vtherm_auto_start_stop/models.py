@@ -6,8 +6,8 @@ One integration, two entry shapes:
   whole installation;
 * a **dedicated instance** — one per thermostat, keyed by its ``unique_id``.
 
-A dedicated entry overrides the global values it defines, including an explicit
-false enable state. Disabled configurations remain effective configurations.
+Dedicated entries override detection parameters. Enable and stop-mode defaults
+initialize entity states; they are not live operational configuration.
 
 The resolution is implemented once, here, and every consumer reads its result so
 the order cannot diverge between the manager and the entities.
@@ -36,6 +36,7 @@ from .const import (
 
 #: Configuration values, distinct from the target entry metadata.
 CONFIG_KEYS = (CONF_LEVEL, CONF_STOP_MODE, CONF_ENABLED)
+PARAMETER_KEYS = (CONF_LEVEL,)
 
 
 def entry_config(entry: ConfigEntry) -> dict[str, Any]:
@@ -70,7 +71,7 @@ def _layers(
             if dedicated_layer is None:
                 dedicated_layer = {}
             dedicated_layer.update(
-                {key: entry[key] for key in CONFIG_KEYS if key in entry}
+                {key: entry[key] for key in PARAMETER_KEYS if key in entry}
             )
         elif not target:
             if global_layer is None:
@@ -99,12 +100,23 @@ def effective_config(
     if global_layer is None and dedicated_layer is None:
         return None
 
-    config = default_config()
+    config = {CONF_LEVEL: DEFAULT_LEVEL}
     if global_layer is not None:
-        config.update(global_layer)
+        config.update(
+            {key: global_layer[key] for key in PARAMETER_KEYS if key in global_layer}
+        )
     if dedicated_layer is not None:
         config.update(dedicated_layer)
     return config
+
+
+def initial_control_defaults(entries: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Return initialization defaults, never overriding saved entity states."""
+    result = {CONF_ENABLED: DEFAULT_ENABLED, CONF_STOP_MODE: DEFAULT_STOP_MODE}
+    for values in entries.values():
+        if not values.get(CONF_VTHERM_UNIQUE_ID):
+            result.update({key: values[key] for key in result if key in values})
+    return result
 
 
 def dedicated_entries(

@@ -151,6 +151,10 @@ DATA_FACTORY_REGISTERED = "factory_registered"
 DATA_MANAGERS = "managers"
 DATA_ADD_ENTITIES = "add_entities"
 DATA_CREATED = "created"
+DATA_CONTROLS = "controls"
+DATA_ENTITIES = "entities"
+DATA_INELIGIBLE = "ineligible"
+DATA_UNLOADING = "unloading"
 
 #: Dispatcher signal sent when a manager is registered, refreshed with a changed
 #: decision, or reconfigured through one of its entities.

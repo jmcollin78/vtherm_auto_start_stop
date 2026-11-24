@@ -1,4 +1,4 @@
-"""Stop-mode selector of a thermostat's dedicated auto-start/stop instance.
+"""Persistent stop-mode selector of every covered thermostat.
 
 Selecting a compatible stop mode does not change activation. The independent
 enable switch controls whether detection runs.
@@ -15,15 +15,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_STOP_MODE,
-    CONF_VTHERM_UNIQUE_ID,
     DOMAIN,
     ENTITY_STOP_MODE_SUFFIX,
     PLATFORM_SELECT,
     STOP_MODES,
 )
 from .entity import AutoStartStopEntity
-from .models import entry_config
-from .registry import ensure_entities, register_callback, unregister_callback
+from .registry import ensure_all_entities, register_callback, unregister_callback
 
 
 async def async_setup_entry(
@@ -31,15 +29,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Register the select callback of a dedicated entry."""
-    values = entry_config(entry)
-    unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
-    if not unique_id:
-        return
-
-    register_callback(hass, PLATFORM_SELECT, unique_id, async_add_entities)
-    entry.async_on_unload(lambda: unregister_callback(hass, PLATFORM_SELECT, unique_id))
-    ensure_entities(hass, unique_id)
+    """Register the select callback of a covering entry."""
+    register_callback(hass, PLATFORM_SELECT, entry.entry_id, async_add_entities)
+    entry.async_on_unload(
+        lambda: unregister_callback(hass, PLATFORM_SELECT, entry.entry_id)
+    )
+    ensure_all_entities(hass)
 
 
 class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
@@ -47,6 +42,7 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:hvac"
+    _control_key = CONF_STOP_MODE
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, vtherm_unique_id: str
@@ -70,21 +66,7 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
     @property
     def current_option(self) -> str | None:
         """Return the saved stop mode even when detection is disabled."""
-        manager = self.manager
-        if manager is not None:
-            return manager.stop_mode
-        return self._entry_values().get(CONF_STOP_MODE)
-
-    async def async_added_to_hass(self) -> None:
-        """Apply persisted configuration, never a stale restored UI state."""
-        await super().async_added_to_hass()
-        manager = self.manager
-        if manager is not None:
-            values = self._entry_values()
-            await manager.async_set_stop_mode(
-                values.get(CONF_STOP_MODE, manager.stop_mode)
-            )
-        self.async_write_ha_state()
+        return self._value if isinstance(self._value, str) else None
 
     async def async_select_option(self, option: str) -> None:
         """Save and apply the mode without changing activation."""
@@ -94,8 +76,4 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
                 translation_key="invalid_auto_start_stop_option",
                 translation_placeholders={"option": option},
             )
-        self._persist({CONF_STOP_MODE: option})
-        manager = self.manager
-        if manager is not None:
-            await manager.async_set_stop_mode(option)
-        self.async_write_ha_state()
+        await self._async_set_value(option)

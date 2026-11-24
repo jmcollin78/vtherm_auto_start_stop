@@ -75,8 +75,11 @@ def test_configuration_translations_match_direct_flow(filename):
     assert set(steps) == {"global", "thermostat", "thermostat_options"}
     assert set(content["config"]["abort"]) == {"already_configured"}
     assert steps["global"]["data"]["enabled"]
-    assert steps["thermostat_options"]["data"]["enabled"]
+    assert set(steps["thermostat_options"]["data"]) == {plugin_const.CONF_LEVEL}
     assert content["options"]["step"]["init"]["data"]["enabled"]
+    initial_label = steps["global"]["data"]["enabled"].lower()
+    assert "initial" in initial_label
+    assert "initial" in steps["global"]["data"][plugin_const.CONF_STOP_MODE].lower()
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,7 @@ from tests.conftest import FakeThermostat
 
 
 @pytest.fixture
-def selection(hass, monkeypatch):
+async def selection(hass, monkeypatch):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -45,11 +45,14 @@ def selection(hass, monkeypatch):
     thermostat = FakeThermostat(hass, "thermostat")
     manager = AutoStartStopManager(thermostat, hass)
     manager.post_init({})
+    manager.restore_entity_state(False, STOP_MODE_DRY)
     entity = AutoStartStopStopModeSelect(hass, entry, thermostat.unique_id)
     entity.hass = hass
     entity.entity_id = "select.auto_start_stop"
     monkeypatch.setattr(entity, "async_write_ha_state", Mock())
-    return entry, thermostat, manager, entity
+    await entity.async_added_to_hass()
+    yield entry, thermostat, manager, entity
+    await entity.async_will_remove_from_hass()
 
 
 @pytest.fixture
@@ -109,8 +112,7 @@ async def test_switch_off_preserves_mode_and_releases_a_detected_stop(
     assert manager.enabled is False
     assert manager.is_detected is False
     assert manager.stop_mode == STOP_MODE_DRY
-    assert entry.options[CONF_ENABLED] is False
-    assert entry.options[CONF_STOP_MODE] == STOP_MODE_DRY
+    assert entry.options == {}
     assert enable_switch.is_on is False
     assert entity.current_option == STOP_MODE_DRY
     assert thermostat.refresh_requests == 1
@@ -140,12 +142,8 @@ async def test_mode_change_preserves_enable_state(
     monkeypatch.setattr(manager, "async_set_enabled", set_enabled)
     await entity.async_select_option(option)
 
-    update.assert_called_once()
-    saved = update.call_args.kwargs["options"]
-    assert saved[CONF_ENABLED] is enabled
-    assert saved[CONF_STOP_MODE] == option
-    assert saved[CONF_VTHERM_UNIQUE_ID] == "thermostat"
-    assert entry.options == saved
+    update.assert_not_called()
+    assert entry.options == {}
     assert manager.enabled is enabled
     assert manager.stop_mode == option
     assert entity.current_option == option
@@ -155,7 +153,7 @@ async def test_mode_change_preserves_enable_state(
 async def test_switch_on_uses_saved_mode(selection, enable_switch):
     entry, _, manager, entity = selection
     await enable_switch.async_turn_on()
-    assert entry.options[CONF_ENABLED] is True
+    assert entry.options == {}
     assert manager.enabled is True
     assert manager.stop_mode == STOP_MODE_DRY
     assert enable_switch.is_on is True
@@ -169,7 +167,12 @@ async def test_switch_startup_applies_saved_mode_before_enabling(
     hass.config_entries.async_update_entry(
         entry, data={**entry.data, CONF_ENABLED: True}
     )
-    manager.restore_entity_state(False, STOP_MODE_OFF)
+    from custom_components.vtherm_auto_start_stop.registry import control_state
+
+    state = control_state(hass, "thermostat")
+    state.enabled = None
+    manager._controls_ready = False
+    manager._stop_mode = STOP_MODE_OFF
     original = manager.async_set_enabled
 
     async def enable_after_mode(enabled):
