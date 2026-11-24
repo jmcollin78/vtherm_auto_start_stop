@@ -13,6 +13,7 @@ An external plugin can already host the feature: the core instantiates one featu
 - **Inert legacy manager**: when an external manager with that stable name is present, the legacy core manager is instantiated but performs no work and publishes no competing state, so two managers never drive the same thermostat.
 - **Automatic migration**: when the plugin is loaded and a thermostat is still flagged as using the core feature while an external manager is actually attached to it, the core writes `use_auto_start_stop_feature = False` and stamps a marker. The legacy level is left in the thermostat entry, where the plugin reads it when the user creates its own configuration.
 - **Orphan entity cleanup**: when the core feature stops being enabled, the registry entries created for it are removed instead of being left orphaned.
+- **Preserved entity identifiers**: remember the exact core switch and select entity IDs in the thermostat entry before cleanup, including user-renamed IDs, so a later dedicated plugin entry can recreate controls at the same IDs without changing cards or automations. Recover missing identity metadata from retained deleted-registry rows for already-delegated test installations when available.
 - **No behavior change otherwise**: a thermostat with neither the plugin nor the migration marker behaves exactly as today, and the state manager's arbitration is untouched.
 
 ## Capabilities

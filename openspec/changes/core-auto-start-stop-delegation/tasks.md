@@ -19,6 +19,8 @@
 - [x] 3.3 Add a test that a second migration run on a marked entry writes nothing, and verify the test passes
 - [x] 3.4 Add a test where the migration raises for one thermostat and verify the remaining thermostats still migrate and startup completes
 - [x] 3.5 Verify `async_remove_entry` leaves the thermostat flag untouched by reading the entry data after a simulated uninstall
+- [x] 3.6 Persist exact switch/select entity IDs under auto_start_stop_entity_ids in the same migration write before registry cleanup, sharing its strict ownership predicate; verify user-renamed IDs, save-before-removal ordering and that unrelated platforms or entries are neither adopted nor removed
+- [x] 3.7 Recover missing identity metadata for already-delegated test entries from retained deleted-registry rows; verify complete metadata is idempotent, remembered IDs are never overwritten and level/delegation state are unchanged
 
 ## 4. Entity lifecycle
 
@@ -31,7 +33,7 @@
 
 - [x] 5.1 Raise the `vtherm_api` minimum constraint in `manifest.json` to `0.13.0`, and verify the integration loads with the pinned version installed
 - [x] 5.2 Run the full integration test suite and verify no existing auto-start/stop test regresses
-- [ ] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level preserved, the core entities removed, and the external manager driving the stop decision
+- [ ] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level and historical entity IDs preserved, core-owned entities removed, dedicated plugin controls using the same IDs, and the external manager driving the stop decision
   - **Blocked**: requires the plugin to exist. This cannot be executed before `vtherm-auto-start-stop-plugin` task 7.1 is implemented. The core side is ready and unit-tested; only the cross-integration check is deferred.
 
 ## Workflow follow-up

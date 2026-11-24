@@ -61,43 +61,54 @@ automatic stop. A previously accumulated error can remain visible, frozen at its
 last value. Disabling releases a detected stop, subject to the thermostat's other
 controls.
 
-Only dedicated entries create an **Auto start/stop** select. There is no separate
-enable switch. Its options combine activation and the automatic stop mode:
+Only dedicated entries create the two production-compatible controls:
+
+- An **Enable auto start/stop** switch, which enables or disables detection
+  without changing the saved stop mode.
+- An independent **Auto start/stop stop mode** select:
 
 | Option (service value) | Behavior |
 |---|---|
-| Disabled (`disabled`) | Disable detection and retain the saved stop mode |
-| Off (`off`) | Enable detection and use HVAC `off` for automatic stops |
-| Fan only (`fan_only`) | Enable detection and use ventilation for automatic stops |
-| Dry (`dry`) | Enable detection and use dehumidification for automatic stops |
+| Off (`off`) | Use HVAC `off` for automatic stops |
+| Fan only (`fan_only`) | Use ventilation for automatic stops |
+| Dry (`dry`) | Use dehumidification for automatic stops |
 
 `fan_only` and `dry` are offered only when supported by the thermostat. `heat`,
 `cool` and `auto` are not stop modes. **Off does not disable auto start/stop.**
-Selecting a stop mode saves that mode and enables detection in one update.
+Selecting a stop mode never enables or disables detection. Use `switch.turn_on`
+or `switch.turn_off` to change activation.
 
-The select remains available when the dedicated configuration is disabled.
+Both controls remain available when the dedicated configuration is disabled.
 Saved configuration takes precedence over previously restored entity state
 after a restart. Thermostats using only the global defaults have no dedicated
 plugin controls; configure them through the global entry or create a dedicated
 entry.
 
-## Upgrading from separate switch and select controls
+## Preserving existing controls and dashboards
 
-Restart Home Assistant after installing the update. During dedicated-entry setup,
-the plugin removes its former enable switch from the entity registry. The existing
-select keeps its identity and entity ID; the configured enable state and saved
-stop mode are preserved. In particular, a disabled entry with `dry` saved stays
-disabled and retains `dry`. Other integrations' and other entries' entities are
-not removed by this entry's cleanup.
+Install the coordinated compatible core and plugin versions, then restart Home
+Assistant. Before removing its old controls, the core saves their exact entity
+IDs. A dedicated plugin entry reuses those IDs, including custom user names,
+without changing the card or dashboard configuration. This also works when the
+dedicated entry is created later, after global-only delegation. Legitimate core
+controls must finish unloading before the plugin creates their replacements.
 
-Update dashboards and automations that referenced the removed switch. Use
-`select.select_option` with `disabled` to disable the feature, or with a supported
-stop mode to enable it. For example, `off` enables detection with automatic HVAC
-stops in `off`; it is not a replacement for the old switch's turn-off action.
+Existing plugin controls are reused rather than deleted. Later user renames are
+preserved. An unrelated entity occupying a historical ID causes an explicit
+configuration error: the plugin never takes it over or silently creates an `_2`
+replacement. Resolve the conflict, then reload the dedicated configuration.
+
+Upgrading from the experimental combined selector restores the switch and removes
+the select's `disabled` option. Saved activation and stop mode are unchanged:
+a disabled entry with `dry` saved stays disabled and retains `dry`. Automations
+written specifically for that experimental option must use the switch instead.
+Already-delegated test installations can recover old core IDs from retained
+registry deletion history. A custom historical ID cannot be reconstructed if
+neither that history nor the core's saved metadata remains available.
 
 ## Removing entries
 
-- Removing a dedicated entry removes its select and restores the global
+- Removing a dedicated entry removes its switch and select and restores the global
   configuration on the next thermostat load. **This can re-enable the feature
   if the global defaults are enabled.**
 - Removing the global entry leaves thermostats without dedicated entries

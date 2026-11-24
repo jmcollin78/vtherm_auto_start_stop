@@ -92,7 +92,7 @@ The migration SHALL run only after the system has finished starting, SHALL be id
 
 #### Scenario: Migration is idempotent
 
-- **WHEN** the migration runs on a thermostat that already carries the marker
+- **WHEN** the migration runs on a thermostat that already carries the marker and has no missing historical identity metadata to recover
 - **THEN** the core writes nothing and startup continues normally
 
 #### Scenario: Migration does not block startup
@@ -118,3 +118,24 @@ When the core auto-start/stop feature stops being active for a thermostat, the c
 
 - **WHEN** the cleanup runs for a thermostat that never had the feature enabled
 - **THEN** nothing is removed and no error is reported
+
+### Requirement: Historical entity identities survive delegation
+
+Before removing its auto-start/stop entities, the core SHALL persist their exact entity IDs in the thermostat entry under auto_start_stop_entity_ids. Identity collection and removal SHALL match the core integration, owning entry, domain and feature-specific unique-id suffix. Remembered IDs SHALL remain available for later dedicated plugin configuration.
+
+#### Scenario: Renamed controls keep their historical references
+
+- **WHEN** the core delegates a thermostat with user-renamed auto-start/stop controls
+- **THEN** the exact switch and select entity IDs are saved before their registry rows are removed
+- **AND** later loads retain those IDs without reconstructing them from a name
+
+#### Scenario: Already-delegated test entries recover retained identities
+
+- **WHEN** a delegated entry lacks historical identity metadata and matching deleted-registry rows are still retained
+- **THEN** the core fills the missing IDs from those rows without changing the level or delegation state
+- **AND** remembered IDs are not overwritten on later runs
+
+#### Scenario: Unrelated identities remain untouched
+
+- **WHEN** another platform or config entry has a similarly suffixed entity
+- **THEN** its identity is neither adopted nor removed by this thermostat's migration

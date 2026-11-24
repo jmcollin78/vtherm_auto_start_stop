@@ -15,7 +15,7 @@ Reference implementations exist in the organization: `vtherm_heating_failure_det
 - Behavioral parity with the core feature for phase 1.
 - A configuration model that removes the level from the thermostat entry.
 - One global configuration and optional dedicated overrides, using the same enable control to activate or deactivate the feature.
-- A single dedicated select combining enable state and compatible stop modes.
+- A dedicated enable switch and independent stop-mode select compatible with existing core references.
 - Eligibility enforced before the user validates and again at every load.
 - Exact attribute and off-reason compatibility.
 - A single place to extend parameters in phase 2.
@@ -65,7 +65,7 @@ Rationale for keeping the valve exclusion rather than widening it: widening is t
 
 There are only two entry shapes: global and dedicated. A thermostat disables the feature through `enabled: false`, either inherited from the global entry or set on its dedicated entry. The separate exclusion entry shape and `excluded` flag are removed.
 
-An effective configuration remains non-null when disabled. After the eligibility check, `factory.supports()` tests for the existence of that configuration, not its enable state. The manager remains configured, publishes its attributes with `auto_start_stop_enable: false`, stops accumulating error and releases any detected stop. The dedicated select remains available and displays `disabled`, so the user can re-enable the same configuration by selecting a stop mode. A frozen accumulated error need not be reset to zero.
+An effective configuration remains non-null when disabled. After the eligibility check, `factory.supports()` tests for the existence of that configuration, not its enable state. The manager remains configured, publishes its attributes with `auto_start_stop_enable: false`, stops accumulating error and releases any detected stop. The dedicated switch remains available and off; the select continues to show the saved stop mode. A frozen accumulated error need not be reset to zero.
 
 Rationale: one enable control expresses the two user operations symmetrically: disable one thermostat when global defaults are enabled, or enable one thermostat when global defaults are disabled. Configuration presence and detection activity are distinct states.
 
@@ -117,44 +117,52 @@ Rationale: the existing UI card and the LLM attribute index read that section by
 
 Rationale: phase 2 adds a `personnalise` mode with explicit values. With this indirection, that mode is one new branch in one function; without it, every call site would need a conditional and the level vocabulary would leak into the algorithm.
 
-### D13 — One combined select, only for dedicated instances
+### D13 — Independent switch and select, only for dedicated instances
 
-Only the select platform is forwarded. Each dedicated entry owns one auto-start/stop select; the switch platform is removed. Registry creation waits only for the select callback and still creates each entity once.
+Forward both switch and select platforms. Each dedicated entry owns one enable switch and one stop-mode select. The registry waits for both callbacks and creates the pair once, after any historical core IDs have been released.
 
 Rationale: an entity needs a stable owner, and an entity belongs to a config entry. A thermostat configured only through the **global instance** has no per-thermostat entry to own an entity, so its configuration is edited from the config flow instead.
 
-The options are `disabled` followed by the manager's existing stop-mode list: `off` is always available, and `fan_only` and `dry` are included only when supported. Heating, cooling and automatic regulation modes are not added. The entity's name and option labels are translated, including "Disabled" / "Désactivé". The existing select unique id and translation key remain stable.
+The select exposes the manager's existing stop-mode list: `off` is always available, and `fan_only` and `dry` are included only when supported. It contains neither `disabled` nor regulation modes such as heat, cool or auto. Both controls and stop-mode labels are translated.
 
-The internal configuration remains `enabled` plus `auto_start_stop_stop_mode`, and the config flow retains its existing fields. The select projects those two values into one control:
+The internal configuration remains `enabled` plus `auto_start_stop_stop_mode`, and the config flow retains its existing fields:
 
-- Effective enabled=false displays `disabled`, without changing the saved stop mode.
-- Selecting `disabled` persists enabled=false and releases any detected stop through the manager.
-- Selecting a supported stop mode persists that mode and enabled=true in one config-entry update. The runtime applies the new mode before enabling detection, so an immediate decision cannot use the old mode.
+- The switch reflects the effective enable state. Turning it off persists enabled=false and releases a detected stop without forgetting the mode.
+- Turning the switch on enables detection with the saved stop mode.
+- Selecting a supported stop mode persists only that field. In particular, changing the mode while disabled does not enable detection.
 - An unsupported selection raises an explicit validation error before any persistence or manager mutation.
 
-`disabled` is a UI value, never a stop mode passed to the thermostat or the algorithm. Configured values take precedence over restored entity state; manager-update signals refresh the select after configuration edits and thermostat reloads.
+Configured values take precedence over restored entity state; manager-update signals refresh both controls after configuration edits and thermostat reloads.
 
-The select remains available even when disabled. Deleting its dedicated entry removes it and restores global configuration resolution if present.
+Both controls remain available while detection is disabled. Deleting the dedicated entry removes them and restores global configuration resolution if present.
 
 Trade-off: a thermostat using only global defaults cannot be toggled individually from the dashboard until it has a dedicated entry.
 
 Terminology note: "global instance" is the single optional entry carrying installation-wide defaults (`unique_id` = domain). It has nothing to do with a Versatile Thermostat **central configuration** entry, which is not `over_climate` and is therefore ineligible.
 
-### D14 — Remove the previous plugin switch without changing configuration
+### D14 — Preserve historical entity IDs through delegation and later dedicated setup
 
-On dedicated-entry setup, remove the entity-registry entry matching the former plugin enable-switch unique id only if its platform and owning config entry also match. Keep the existing select entity and its identity. Cleanup is idempotent and applies even to a disabled former switch.
+The core delegation migration records the exact historical core switch and select entity IDs in the thermostat entry under `auto_start_stop_entity_ids`, keyed by `switch` and `select`, before clearing the feature flag and removing its entities. Registry matches require the core platform, owning core entry, domain and feature-specific unique-id suffix. Persisted identities are not recomputed from a thermostat name. Already-delegated test installations can recover missing identities from Home Assistant's retained deleted-registry entries when available.
 
-Existing enabled and stop-mode values remain unchanged; no config-entry schema conversion is needed. A previously disabled entry therefore displays `disabled` even when its retained stop mode is `dry`. Other integration and config-entry entities must not be touched.
+The plugin reads this metadata when setting up a dedicated entry, even if the global configuration delegated the thermostat earlier. While the core still owns a target ID, entity creation waits for registry removal and retries; a different owner is an explicit conflict, not a reason to append `_2` or remove that owner's entity.
 
-Rationale: merely stopping switch-platform forwarding would leave a stale switch in the user's entity list. This targeted cleanup delivers the requested one-entity interface without changing user settings or renaming the surviving select. Automations referencing the removed switch must be updated to select `disabled` or a stop mode.
+Reuse existing plugin registry entries and stable plugin unique IDs. Adopt historical entity IDs once, marking that adoption durably on the dedicated entry, so later user renames survive reloads. If no historical core identity is available, retain any existing plugin entity IDs; new controls use core-compatible names rather than hardcoded thermostat examples. Do not delete the former plugin switch. Recreate it only when missing, and remove the combined select's `disabled` option without changing either saved parameter.
+
+The global-only rule is unchanged: no dedicated entry means no plugin entities, even if core entities existed before delegation. Historical identities remain available for a later dedicated entry.
+
+Resolve the thermostat through its climate registry owner or the core entry identity. The core publishes its config-entry ID as the climate unique ID; targeted reloads and global-override filtering must recognize that ID, not only the optional config-entry `unique_id`, so dedicated setup actually triggers core delegation and releases its controls.
+
+Rationale: recreating an English-looking default name does not preserve renamed entities or guarantee exact IDs. Remembering the registry identity before cleanup preserves dashboard and automation references without coupling the plugin to the card. Persistent adoption state prevents a later thermostat reload from undoing a user's rename.
 
 ## Risks / Trade-offs
 
 - **Divergence from the core algorithm over time**: the ported algorithm is a copy. Mitigated by keeping the copy minimal and by the fact that the core implementation is scheduled for deletion.
 - **Ineligible after reconfiguration**: the factory re-check drops the manager, so the feature stops silently. Mitigated by a log entry naming the reason.
 - **Disabled mistaken for absent**: a disabled thermostat still exposes the attribute section and, for dedicated instances, controls. Mitigated by documenting the distinction and testing configured=true with enabled=false and no detection activity.
-- **Off mistaken for disabled**: `off` enables detection and chooses the HVAC mode used on an automatic stop; only `disabled` suspends the feature. Mitigated by distinct localized options and tests of both transitions.
-- **Legacy switch references**: dashboards or automations targeting the former switch need updating. Mitigated by retaining the select identity, targeted switch cleanup and user-facing upgrade guidance.
+- **Off mistaken for disabled**: `off` selects the HVAC mode used on an automatic stop; the switch alone controls activation. Mitigated by independent controls, documentation and tests with the switch both on and off.
+- **Historical IDs lost during delegation**: generating replacement names can break dashboards and automations. Mitigated by core-side persistence before cleanup and exact-ID assertions, including renamed entities and delayed dedicated-entry creation.
+- **Already-deleted test-version identities**: deleted-registry metadata may no longer be retained. Recover it when available; do not claim a missing customized historical name can be reconstructed from a display name.
+- **Identity conflict or setup ordering**: another owner can occupy a historical ID, or core cleanup can still be pending. Wait only for legitimate core cleanup, report other conflicts explicitly, and test that unrelated entities are never modified.
 - **Dedicated instance deletion**: deleting a locally disabled instance can re-enable the feature if global defaults are enabled. Mitigated by documenting the return to global values and testing both global enable states.
 - **Global instance deletion**: a thermostat without a dedicated instance has no effective configuration and loses its manager on the next load; a dedicated instance continues over plugin defaults. Mitigated by testing and documenting both cases rather than retaining stale global values.
 - **Two refresh paths**: if the core later changes how often it refreshes external managers, the transition-only refresh keeps behavior correct but may delay the effect by one cycle. Accepted.
@@ -163,9 +171,9 @@ Rationale: merely stopping switch-platform forwarding would leave a stale switch
 ## Migration Plan
 
 1. Publish `thermostat-runtime-api` with the new members.
-2. Publish the core delegation change with migration and entity cleanup.
+2. Publish the core delegation change with durable historical entity-ID capture before entity cleanup.
 3. Install the plugin and configure global defaults. When creating a dedicated instance, read the legacy level carried by the thermostat entry and seed that instance.
 4. The core flag is already cleared by the delegation change, so no duplicate configuration or duplicate entity exists at any point.
 5. For this configuration simplification, remove exclusion handling from the model, config flow, constants, registry, entity platforms, fixtures and translations. No exclusion entries have been created in the test installation, so no migration, compatibility reader or automatic conversion is required. Existing global and ordinary dedicated entries retain their identities and values.
-6. On the upgrade to a combined select, retain existing dedicated values and select identities while removing only each entry's former plugin enable switch as described in D14. Restart Home Assistant after deploying the platform change.
+6. Restore the plugin switch platform and stop-mode-only select. Retain dedicated settings, adopt historical core IDs when available as described in D14, and preserve subsequent user renames. Restart Home Assistant after deploying the coordinated core/plugin updates; no card configuration change is needed when historical IDs are available.
 7. Phase 2 adds the `personnalise` mode inside `resolve_params`.

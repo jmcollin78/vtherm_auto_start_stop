@@ -58,6 +58,7 @@ def test_stable_manager_name():
 def test_legacy_keys():
     """The migration reads exactly these keys from the core entry."""
     assert plugin_const.LEGACY_LEVEL == "auto_start_stop_level"
+    assert plugin_const.LEGACY_ENTITY_IDS == "auto_start_stop_entity_ids"
     assert plugin_const.LEGACY_THERMOSTAT_TYPE == "thermostat_type"
     assert plugin_const.LEGACY_REGULATION_MODE == "auto_regulation_mode"
     assert plugin_const.LEGACY_REGULATION_VALVE == "auto_regulation_valve"
@@ -81,25 +82,22 @@ def test_configuration_translations_match_direct_flow(filename):
 @pytest.mark.parametrize(
     "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
 )
-def test_combined_select_translations_match_entity_options(filename):
+def test_independent_control_translations_match_entity_options(filename):
     root = Path(plugin_const.__file__).parent
     content = json.loads((root / filename).read_text(encoding="utf-8"))
-    assert set(content["entity"]) == {"select"}
+    assert set(content["entity"]) == {"switch", "select"}
+    assert content["entity"]["switch"][plugin_const.ENTITY_ENABLE_SUFFIX]["name"]
     select = content["entity"]["select"][plugin_const.ENTITY_STOP_MODE_SUFFIX]
     assert select["name"]
-    assert set(select["state"]) == {
-        plugin_const.SELECT_DISABLED, *plugin_const.STOP_MODES
-    }
+    assert set(select["state"]) == set(plugin_const.STOP_MODES)
     assert all(select["state"].values())
-    assert select["state"][plugin_const.SELECT_DISABLED] == (
-        "D\u00e9sactiv\u00e9" if filename.endswith("fr.json") else "Disabled"
-    )
     assert set(
         content["selector"][plugin_const.CONF_STOP_MODE]["options"]
     ) == set(plugin_const.STOP_MODES)
     exceptions = content["exceptions"]
     assert "{option}" in exceptions["invalid_auto_start_stop_option"]["message"]
     assert exceptions["missing_configuration"]["message"]
+    assert "{entity_id}" in exceptions["entity_id_conflict"]["message"]
 
 
 def test_every_constant_is_referenced():

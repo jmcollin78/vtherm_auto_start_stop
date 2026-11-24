@@ -14,15 +14,15 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
+    CONF_ENTITY_IDS_ADOPTED,
     CONF_VTHERM_UNIQUE_ID,
     DATA_ENTRIES,
     DOMAIN,
-    ENTITY_ENABLE_SUFFIX,
     PLATFORMS,
     VT_DOMAIN,
 )
@@ -32,7 +32,7 @@ from .factory import (
     unregister_factory,
 )
 from .models import CONFIG_KEYS, entry_config
-from .registry import reset_entities
+from .registry import ensure_entities, prepare_entity_ids, reset_entities
 
 _LOGGER = get_vtherm_logger(__name__)
 
@@ -65,10 +65,13 @@ async def _reload_thermostats(
 
     tasks = []
     for thermostat_entry in hass.config_entries.async_entries(VT_DOMAIN):
+        thermostat_ids = (thermostat_entry.entry_id, thermostat_entry.unique_id)
         if target is not None:
-            if thermostat_entry.unique_id != target:
+            if target not in thermostat_ids:
                 continue
-        elif source_entry is not None and thermostat_entry.unique_id in overrides:
+        elif source_entry is not None and any(
+            identity in overrides for identity in thermostat_ids
+        ):
             # A complete dedicated configuration inherits no global field.
             continue
         tasks.append(hass.config_entries.async_reload(thermostat_entry.entry_id))
@@ -86,22 +89,19 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one global or dedicated entry."""
     values = entry_config(entry)
-    _entries(hass)[entry.entry_id] = values
     unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
     if unique_id:
-        registry = er.async_get(hass)
-        switch_id = registry.async_get_entity_id(
-            "switch", DOMAIN, f"{unique_id}_{ENTITY_ENABLE_SUFFIX}"
+        prepare_entity_ids(hass, entry, unique_id)
+
+        @callback
+        def core_entity_removed(event: Event) -> None:
+            if event.data["action"] == "remove":
+                ensure_entities(hass, unique_id)
+
+        entry.async_on_unload(
+            hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, core_entity_removed)
         )
-        legacy_switch = registry.async_get(switch_id) if switch_id else None
-        if (
-            legacy_switch is not None
-            and legacy_switch.config_entry_id == entry.entry_id
-        ):
-            _LOGGER.info(
-                "%s - removing superseded enable switch %s", entry.title, switch_id
-            )
-            registry.async_remove(legacy_switch.entity_id)
+    _entries(hass)[entry.entry_id] = entry_config(entry)
     register_factory(hass, AutoStartStopManagerFactory(hass))
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -112,7 +112,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Apply changed options and reload the affected thermostats."""
-    _entries(hass)[entry.entry_id] = entry_config(entry)
+    previous = _entries(hass).get(entry.entry_id, {})
+    current = entry_config(entry)
+    _entries(hass)[entry.entry_id] = current
+    if previous.get(CONF_ENTITY_IDS_ADOPTED) != current.get(
+        CONF_ENTITY_IDS_ADOPTED
+    ) and all(
+        previous.get(key) == current.get(key)
+        for key in (*CONFIG_KEYS, CONF_VTHERM_UNIQUE_ID)
+    ):
+        return
     await _reload_thermostats(hass, entry)
 
 

@@ -69,11 +69,15 @@
     }
   },
   "entity": {
+    "switch": {
+      "auto_start_stop_enable": {
+        "name": "Activer le start/stop automatique"
+      }
+    },
     "select": {
       "auto_start_stop_stop_mode": {
-        "name": "Start/stop automatique",
+        "name": "Mode d'arrêt du start/stop automatique",
         "state": {
-          "disabled": "Désactivé",
           "off": "Arrêt",
           "fan_only": "Ventilation seule",
           "dry": "Déshumidification"
@@ -82,6 +86,9 @@
     }
   },
   "exceptions": {
+    "entity_id_conflict": {
+      "message": "Impossible de réutiliser {entity_id} : cet identifiant appartient déjà à une autre entité. Résolvez le conflit puis rechargez cette configuration."
+    },
     "invalid_auto_start_stop_option": {
       "message": "Option de start/stop automatique non prise en charge : {option}."
     },

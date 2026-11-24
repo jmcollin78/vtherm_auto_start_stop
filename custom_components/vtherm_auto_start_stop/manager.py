@@ -345,7 +345,7 @@ class AutoStartStopManager:
         )
 
     async def async_set_enabled(self, enabled: bool) -> None:
-        """Apply a new enable state; the select owns configuration persistence."""
+        """Apply a new enable state; the switch owns configuration persistence."""
         if self._enabled == enabled:
             return
         self._enabled = enabled

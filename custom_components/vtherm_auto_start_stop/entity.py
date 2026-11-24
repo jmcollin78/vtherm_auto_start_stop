@@ -1,6 +1,6 @@
-"""Base entity for the plugin select of one thermostat.
+"""Base entity for the plugin controls of one thermostat.
 
-The plugin select belongs to a **dedicated** config entry and is shown on the
+The plugin controls belong to a **dedicated** config entry and are shown on the
 thermostat device, so the dashboard groups them with the thermostat they
 configure. A thermostat configured only through the global instance owns no
 entry at all, hence no entity: this is the phase-1 trade-off explained in the

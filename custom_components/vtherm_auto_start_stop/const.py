@@ -44,6 +44,12 @@ ATTR_IS_CONFIGURED = "is_auto_start_stop_configured"
 #: Unique id of the targeted thermostat on a dedicated entry.
 CONF_VTHERM_UNIQUE_ID = "vtherm_unique_id"
 
+#: Do not overwrite later user renames after the historical IDs were adopted.
+CONF_ENTITY_IDS_ADOPTED = "entity_ids_adopted"
+
+#: Exact historical control IDs preserved by the core before delegation.
+LEGACY_ENTITY_IDS = "auto_start_stop_entity_ids"
+
 #: Configured auto-start/stop level.
 CONF_LEVEL = "auto_start_stop_level"
 
@@ -126,12 +132,11 @@ ATTR_STOP_MODE = "auto_start_stop_stop_mode"
 # Entities
 # ---------------------------------------------------------------------------
 
-PLATFORMS = ["select"]
+PLATFORM_SWITCH = "switch"
+PLATFORM_SELECT = "select"
+PLATFORMS = [PLATFORM_SWITCH, PLATFORM_SELECT]
 
-#: Select-only value: disables detection without changing the saved stop mode.
-SELECT_DISABLED = "disabled"
-
-#: Former switch unique-id suffix, retained only for registry cleanup.
+#: Stable plugin switch unique-id suffix.
 ENTITY_ENABLE_SUFFIX = "auto_start_stop_enable"
 
 #: Select unique-id suffix (appended to the thermostat unique id).

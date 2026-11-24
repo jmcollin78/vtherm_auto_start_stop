@@ -1,7 +1,7 @@
-"""Combined selector of a thermostat's dedicated auto start/stop instance.
+"""Stop-mode selector of a thermostat's dedicated auto-start/stop instance.
 
-Disabled suspends detection without changing the saved stop mode. Selecting a
-compatible stop mode enables detection; ``off`` is always available.
+Selecting a compatible stop mode does not change activation. The independent
+enable switch controls whether detection runs.
 """
 
 from __future__ import annotations
@@ -14,13 +14,11 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CONF_ENABLED,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
-    DEFAULT_ENABLED,
     DOMAIN,
     ENTITY_STOP_MODE_SUFFIX,
-    SELECT_DISABLED,
+    PLATFORM_SELECT,
     STOP_MODES,
 )
 from .entity import AutoStartStopEntity
@@ -39,13 +37,13 @@ async def async_setup_entry(
     if not unique_id:
         return
 
-    register_callback(hass, unique_id, async_add_entities)
-    entry.async_on_unload(lambda: unregister_callback(hass, unique_id))
+    register_callback(hass, PLATFORM_SELECT, unique_id, async_add_entities)
+    entry.async_on_unload(lambda: unregister_callback(hass, PLATFORM_SELECT, unique_id))
     ensure_entities(hass, unique_id)
 
 
 class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
-    """Disable detection or choose the HVAC mode applied on an automatic stop."""
+    """Choose the HVAC mode applied on an automatic stop."""
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:hvac"
@@ -63,22 +61,19 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        """Return disabled followed by the compatible stop modes."""
+        """Return compatible stop modes, independently of activation."""
         manager = self.manager
         if manager is not None:
-            return [SELECT_DISABLED, *manager.stop_modes]
-        return [SELECT_DISABLED, *STOP_MODES]
+            return manager.stop_modes
+        return list(STOP_MODES)
 
     @property
     def current_option(self) -> str | None:
-        """Project the effective enable state and stop mode."""
+        """Return the saved stop mode even when detection is disabled."""
         manager = self.manager
         if manager is not None:
-            return manager.stop_mode if manager.enabled else SELECT_DISABLED
-        values = self._entry_values()
-        if not values.get(CONF_ENABLED, DEFAULT_ENABLED):
-            return SELECT_DISABLED
-        return values.get(CONF_STOP_MODE)
+            return manager.stop_mode
+        return self._entry_values().get(CONF_STOP_MODE)
 
     async def async_added_to_hass(self) -> None:
         """Apply persisted configuration, never a stale restored UI state."""
@@ -89,26 +84,18 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity):
             await manager.async_set_stop_mode(
                 values.get(CONF_STOP_MODE, manager.stop_mode)
             )
-            await manager.async_set_enabled(
-                values.get(CONF_ENABLED, manager.enabled)
-            )
         self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
-        """Save activation and mode together, then reconcile the live manager."""
+        """Save and apply the mode without changing activation."""
         if option not in self.options:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="invalid_auto_start_stop_option",
                 translation_placeholders={"option": option},
             )
-        values: dict[str, object] = {CONF_ENABLED: option != SELECT_DISABLED}
-        if option != SELECT_DISABLED:
-            values[CONF_STOP_MODE] = option
-        self._persist(values)
+        self._persist({CONF_STOP_MODE: option})
         manager = self.manager
         if manager is not None:
-            if option != SELECT_DISABLED:
-                await manager.async_set_stop_mode(option)
-            await manager.async_set_enabled(option != SELECT_DISABLED)
+            await manager.async_set_stop_mode(option)
         self.async_write_ha_state()

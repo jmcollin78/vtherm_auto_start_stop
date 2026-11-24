@@ -36,24 +36,28 @@ Tasks reopened below describe the approved simplification; their earlier exclusi
 
 ## 5. Entities
 
-- [x] 5.1 Forward only the select platform, remove the switch implementation and simplify the registry to one callback; verify each eligible dedicated instance owns exactly one select with the existing unique id even when disabled, global-only thermostats own no entity, and delete/recreate does not duplicate or lose the select
-- [x] 5.2 Project enabled=false as the disabled select option and implement selecting disabled without changing the saved stop mode; verify accumulated error stays frozen, a detected stop is released, and configuration edits and restart override stale restored entity state
-- [x] 5.3 Implement selecting a compatible stop mode as one persisted update setting that mode and enabled=true, applying the runtime mode before enabling detection; verify off enables rather than disables, fan_only/dry are filtered by capabilities, and unsupported choices raise an explicit error without changing configuration or runtime state
-- [x] 5.4 Remove each dedicated entry's former plugin enable switch from the entity registry during setup, preserving its configuration and existing select identity; verify disabled entries remain disabled, cleanup is idempotent and entities belonging to another integration or config entry are untouched
-- [x] 5.5 Translate the combined select name and all options in strings and English/French resources, and update the README with disabled-versus-off behavior and upgrade guidance for old switch automations; verify localized option keys match the entity options and documented examples match the selection and upgrade tests
+The combined-select implementation is superseded by the verified production interface. Tasks below are reopened for independent controls and exact historical entity-ID compatibility.
+
+- [x] 5.1 Forward switch and select platforms, restore the enable-switch implementation and pair creation, and remove switch deletion; verify each dedicated entry owns one switch and one select even when disabled, global-only thermostats own neither, and reload/delete/recreate never duplicates or loses a control
+- [x] 5.2 Implement switch-only activation without changing the saved stop mode; verify switch-off freezes accumulated error and releases a detected stop, switch-on uses the saved mode, and both controls follow configuration edits and restart rather than stale restored states
+- [x] 5.3 Return the select to supported stop modes only, with no disabled option or implicit activation; verify changing off/fan_only/dry preserves either enable state, capability filtering is unchanged, and unsupported choices fail before configuration or runtime mutation
+- [x] 5.4 Adopt the remembered historical core entity IDs exactly, reusing existing plugin registry entries and preserving later user renames; verify the production example IDs, custom IDs, delayed dedicated setup, core cleanup ordering, idempotency, and explicit conflicts without silent _2 suffixes or changes to unrelated owners
+- [x] 5.5 Restore switch/select names and stop-mode translations in strings and English/French resources, remove the combined disabled option, and update the README for independent controls and historical-ID compatibility; verify translation keys match both platforms and documented card service actions work with unchanged entity IDs
 
 ## 6. Migration from the core configuration
 
 - [x] 6.1 Read the legacy level from the thermostat entry when creating a dedicated instance and seed the instance with it, and verify the seeded value with a test
 - [x] 6.2 Verify an existing dedicated instance is not overwritten by the legacy level on a later configuration
+- [x] 6.3 Coordinate core delegation to persist exact switch/select IDs under auto_start_stop_entity_ids before cleanup and recover missing metadata for already-delegated test entries from retained deleted-registry rows when available; verify ownership filtering, save-before-removal ordering, idempotency, no overwrite of remembered identities and unchanged core migration behavior
 
 ## 7. Integration verification
 
-- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity; then verify the direct dedicated flow, global enabled/local disabled and global disabled/local enabled cases, the single select including disabled/off and old-switch removal after upgrade, and return to global values after removing the dedicated entry
+- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core-owned auto-start/stop entity; then verify direct dedicated configuration, both global/local enable overrides, the restored switch and stop-mode select at the exact historical entity IDs, unchanged card activation/deactivation and mode selection, and return to global values after dedicated removal
   - This is the validation point of `core-auto-start-stop-delegation` task 5.3, which is blocked until this task runs. Report the outcome back there.
   - Automated regressions cover the revised configuration flow, overrides, controls and entry removal. They do not replace this check against the actual delegated core; no deployment or on-instance validation was performed during this apply.
 - [x] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager on reload and the installation keeps running
-- [x] 7.3 Re-run the integration test suite after the combined-select change and verify no test fails, including direct-flow, disabled-configuration, atomic selection, entity-upgrade and unchanged eligibility regressions
+- [x] 7.3 Re-run the plugin integration test suite and the affected core migration regressions after restoring independent controls; verify no failures in direct-flow, disabled-configuration, separate switch/select actions, exact-ID adoption, upgrade and unchanged eligibility coverage
+  - Verified: 217 plugin tests and 50 core migration/feature-manager/stop-mode tests pass. Both OpenSpec changes pass strict validation, and both repositories pass whitespace checks. These automated results do not replace task 7.1.
 
 ## Workflow follow-up
 

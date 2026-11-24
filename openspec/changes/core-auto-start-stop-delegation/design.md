@@ -56,7 +56,7 @@ Trade-off: an inert object is slightly less obvious than a removed one. Accepted
 
 ### D3 — Migration is a single write, the level stays in place
 
-The migration writes `use_auto_start_stop_feature = False` **and** the marker in one `async_update_entry`. The legacy level is deliberately **not** copied anywhere and **not** cleared: it stays in the thermostat entry, and the plugin reads it when the user creates its own configuration.
+The migration writes `use_auto_start_stop_feature = False`, the marker, and historical entity identities in one `async_update_entry`. Before removing registry rows, record their exact entity IDs under `auto_start_stop_entity_ids`, keyed by `switch` and `select`. The legacy level is deliberately **not** copied anywhere and **not** cleared: it stays in the thermostat entry, and the plugin reads it when the user creates its own configuration.
 
 Rationale: there is nothing to copy into at migration time. A registered factory creates no config entry, and the plugin may have neither a global nor a dedicated instance yet. Copying would require a cross-integration write into the plugin's entry schema, plus an ordering guarantee, for a value the plugin can read later from its source of truth. Leaving it also makes the two changes consistent: the plugin change reads the legacy level from the thermostat entry.
 
@@ -78,9 +78,17 @@ Rationale: the decision "do not create my entities" is taken by the thermostat p
 
 ### D5 — Explicit registry removal, targeted by entry and unique-id suffix
 
-Disabling the flag only prevents future entity additions; the existing registry rows stay and surface as unavailable entities. The migration therefore removes them explicitly, filtered by `config_entry_id` and by a `unique_id` suffix, computed from the platform attribute names.
+Disabling the flag only prevents future entity additions; the existing registry rows stay and surface as unavailable entities. The migration therefore removes them explicitly, filtered by core platform, `config_entry_id`, entity domain and its feature-specific `unique_id` suffix.
 
 Rationale: `unique_id` is built on the device name, which changes when a thermostat is renamed, so filtering on the full `unique_id` would miss renamed thermostats. Filtering on the suffix plus the config entry is stable.
+
+### D5b — Keep historical IDs after core registry cleanup
+
+The thermostat entry is the durable source of historical switch/select entity IDs, just as it already retains the legacy level. Store these IDs before removal rather than deriving them from a display name. The plugin may initially use only its global configuration, then create a dedicated entry much later; the metadata must survive that interval and restarts.
+
+Identity collection uses the same ownership predicate as cleanup, preferring current core rows. For an already-delegated entry with missing or partial metadata, recover missing identities from retained deleted-registry rows without overwriting remembered IDs. Complete metadata makes subsequent runs no-ops. Recovery cannot reconstruct a customized ID after both durable metadata and deleted-registry history are unavailable.
+
+The core still removes its own entities; dedicated plugin ownership replaces them, and global-only thermostats still receive no plugin entities. Detach live core entities before removing registry rows, as in the existing asynchronous cleanup.
 
 ### D6 — No automatic restore on plugin removal
 
