@@ -15,7 +15,8 @@ Moving the feature to a plugin removes that constraint. The thermostat already i
 - **One way to disable the feature**: set `enabled: false` on the global or dedicated configuration. A disabled configuration remains configured and keeps its manager, attributes and, for dedicated instances, entities; it runs no detection and requests no automatic stop.
 - **Simplified configuration flow**: the first entry configures the global defaults; further entries open the thermostat selector directly, followed by its settings. **BREAKING**: the configure-or-exclude menu and exclusion entry type are removed from the test-version UI. No exclusion entries have been created, so no exclusion-data migration or compatibility path is required.
 - **Return to global defaults**: removing a dedicated instance makes that thermostat use the global configuration again, if one exists, without affecting other thermostats.
-- **Entities only on dedicated instances**: the enable switch and the stop-mode selector are created only for thermostats that have their own dedicated instance. A thermostat configured through the global instance has no per-thermostat entry to own an entity, so it is configured from the config flow instead.
+- **One select per dedicated instance**: one auto-start/stop select combines activation and the stop mode. Its options are `disabled` (localized as "Disabled"/"Désactivé"), `off`, and `fan_only`/`dry` only when supported by the thermostat. Selecting a mode enables the feature; selecting `disabled` disables it without forgetting the saved stop mode. Thermostats using only global defaults still have no dedicated entity.
+- **Upgrade of existing plugin entities**: remove the former plugin enable switch while preserving the existing select identity and configuration values. Internally, `enabled` and the stop mode remain separate fields; `disabled` is never sent as an HVAC mode.
 - **Functional parity in phase 1**: the five levels (`very_slow` to `fast`, plus `none`), the stop modes (`off`, `fan_only`, `dry`), the same eligibility (including the exclusion of valve-regulated thermostats), the same algorithm, the same custom attributes and the same off-reason are preserved. No user gains or loses a supported thermostat compared with the core feature.
 - **Room for phase 2**: parameters are resolved through a single `resolve_params(level)` function so a `personnalise` mode can later supply explicit thresholds without changing call sites.
 
@@ -31,7 +32,7 @@ None.
 
 ## Impact
 
-- New integration `custom_components/vtherm_auto_start_stop/`: `__init__.py`, `config_flow.py`, `const.py`, `models.py`, `factory.py`, `manager.py`, `registry.py`, `switch.py`, `select.py`, `manifest.json`, translations.
+- New integration `custom_components/vtherm_auto_start_stop/`: `__init__.py`, `config_flow.py`, `const.py`, `models.py`, `factory.py`, `manager.py`, `registry.py`, `select.py`, `manifest.json`, translations. The former switch platform is removed.
 - Ported algorithm module, rewritten to read the runtime clock and to expose `resolve_params(level)`.
 - Consumes `thermostat-runtime-api` (immediate refresh request, valve-regulation fact, accepted HVAC modes) and `auto-start-stop-delegation` (stable name `auto_start_stop`, marker `auto_start_stop_migrated_by`).
 - Depends on both changes being released first.

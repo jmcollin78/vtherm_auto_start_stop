@@ -69,15 +69,24 @@
     }
   },
   "entity": {
-    "switch": {
-      "auto_start_stop_enable": {
-        "name": "Start/stop automatique"
-      }
-    },
     "select": {
       "auto_start_stop_stop_mode": {
-        "name": "Mode d'arrêt du start/stop automatique"
+        "name": "Start/stop automatique",
+        "state": {
+          "disabled": "Désactivé",
+          "off": "Arrêt",
+          "fan_only": "Ventilation seule",
+          "dry": "Déshumidification"
+        }
       }
+    }
+  },
+  "exceptions": {
+    "invalid_auto_start_stop_option": {
+      "message": "Option de start/stop automatique non prise en charge : {option}."
+    },
+    "missing_configuration": {
+      "message": "La configuration du start/stop automatique n'existe plus."
     }
   }
 }

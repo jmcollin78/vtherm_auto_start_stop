@@ -345,7 +345,7 @@ class AutoStartStopManager:
         )
 
     async def async_set_enabled(self, enabled: bool) -> None:
-        """Persist and apply a new enable state."""
+        """Apply a new enable state; the select owns configuration persistence."""
         if self._enabled == enabled:
             return
         self._enabled = enabled
@@ -359,7 +359,7 @@ class AutoStartStopManager:
         self._thermostat.update_custom_attributes()
 
     async def async_set_stop_mode(self, stop_mode: str) -> None:
-        """Persist and apply a new stop mode."""
+        """Apply a new stop mode; the select owns configuration persistence."""
         stop_mode = normalize_stop_mode(stop_mode)
         if self._stop_mode == stop_mode:
             return
@@ -374,11 +374,7 @@ class AutoStartStopManager:
         self._thermostat.update_custom_attributes()
 
     def restore_entity_state(self, enabled: bool, stop_mode: str) -> None:
-        """Reconcile the manager with the state restored by its entities.
-
-        The entities prefer their configured values, falling back to restored
-        state only when no configured value is available.
-        """
+        """Reconcile the manager with a supplied enable state and stop mode."""
         self._enabled = enabled
         self._stop_mode = normalize_stop_mode(stop_mode)
 

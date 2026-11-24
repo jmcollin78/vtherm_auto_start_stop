@@ -1,10 +1,7 @@
 """Shared registry of the plugin runtime objects.
 
-The entities of a thermostat can only be created once its dedicated entry has
-forwarded both platforms **and** the plugin entry has been loaded (which may
-happen after the thermostat). The manager therefore asks for entity creation on
-registration and on each refresh; :func:`ensure_entities` creates them exactly
-once, when both ``async_add_entities`` callbacks are known.
+The select of a thermostat is created once its dedicated entry has registered
+its ``async_add_entities`` callback, which may happen after the thermostat loads.
 """
 
 from __future__ import annotations
@@ -18,12 +15,12 @@ from .const import (
     DATA_CREATED,
     DATA_MANAGERS,
     DOMAIN,
-    PLATFORM_SELECT,
-    PLATFORM_SWITCH,
 )
 from .models import entry_config
 
 if TYPE_CHECKING:
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
     from .manager import AutoStartStopManager
 
 
@@ -41,18 +38,16 @@ def get_manager(hass: HomeAssistant, vtherm_unique_id: str):
     return managers(hass).get(vtherm_unique_id)
 
 
-def register_callback(hass: HomeAssistant, platform: str, unique_id: str, cb) -> None:
-    """Store the add-entities callback of one platform for a thermostat."""
-    _domain_data(hass).setdefault(DATA_ADD_ENTITIES, {}).setdefault(unique_id, {})[
-        platform
-    ] = cb
+def register_callback(
+    hass: HomeAssistant, unique_id: str, cb: AddEntitiesCallback
+) -> None:
+    """Store the select add-entities callback for a thermostat."""
+    _domain_data(hass).setdefault(DATA_ADD_ENTITIES, {})[unique_id] = cb
 
 
-def unregister_callback(hass: HomeAssistant, platform: str, unique_id: str) -> None:
-    """Forget the add-entities callback of one platform."""
-    bucket = _domain_data(hass).get(DATA_ADD_ENTITIES, {}).get(unique_id)
-    if bucket is not None:
-        bucket.pop(platform, None)
+def unregister_callback(hass: HomeAssistant, unique_id: str) -> None:
+    """Forget the select add-entities callback."""
+    _domain_data(hass).get(DATA_ADD_ENTITIES, {}).pop(unique_id, None)
 
 
 def dedicated_entry(hass: HomeAssistant, unique_id: str):
@@ -66,17 +61,13 @@ def dedicated_entry(hass: HomeAssistant, unique_id: str):
 
 
 def ensure_entities(hass: HomeAssistant, unique_id: str) -> None:
-    """Create the switch and the select of a thermostat, once.
+    """Create the select of a thermostat, once.
 
     Called on manager registration and on each refresh, so a plugin entry loaded
-    after the thermostat still ends up creating its entities.
+    after the thermostat still ends up creating its select.
     """
-    bucket = _domain_data(hass).get(DATA_ADD_ENTITIES, {}).get(unique_id)
-    if not bucket:
-        return
-    switch_cb = bucket.get(PLATFORM_SWITCH)
-    select_cb = bucket.get(PLATFORM_SELECT)
-    if switch_cb is None or select_cb is None:
+    select_cb = _domain_data(hass).get(DATA_ADD_ENTITIES, {}).get(unique_id)
+    if select_cb is None:
         return
 
     created = _domain_data(hass).setdefault(DATA_CREATED, {})
@@ -88,12 +79,9 @@ def ensure_entities(hass: HomeAssistant, unique_id: str) -> None:
         return
     created[unique_id] = True
 
-    # Imported here to avoid a circular import with the platforms, which import
+    # Imported here to avoid a circular import with the platform, which imports
     # this module to register their callbacks.
     from .select import AutoStartStopStopModeSelect
-    from .switch import AutoStartStopEnableSwitch
-
-    switch_cb([AutoStartStopEnableSwitch(hass, entry, unique_id)])
     select_cb([AutoStartStopStopModeSelect(hass, entry, unique_id)])
 
 

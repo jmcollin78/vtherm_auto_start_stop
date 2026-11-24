@@ -97,7 +97,8 @@ The plugin SHALL let a dedicated instance override the global enable state in ei
 #### Scenario: A disabled dedicated instance retains its controls
 
 - **WHEN** a thermostat has a disabled dedicated instance
-- **THEN** its manager, auto-start/stop attribute section, enable switch and stop-mode selector remain present
+- **THEN** its manager, auto-start/stop attribute section and single auto-start/stop select remain present
+- **AND** the select displays the disabled option
 - **AND** its configured flag is true, its enable state is false, and detection does not accumulate error or request an automatic stop
 
 #### Scenario: Disabling releases a detected stop
@@ -199,22 +200,79 @@ The plugin SHALL publish the same auto-start/stop attribute section as the core 
 
 ### Requirement: Plugin entities
 
-The plugin SHALL create an enable switch and a stop-mode selector only for thermostats that have a dedicated instance.
+The plugin SHALL create exactly one auto-start/stop select and no enable switch for each eligible thermostat with a dedicated instance. Its options SHALL be disabled, off, and fan_only/dry only when supported by the thermostat. Disabled SHALL be distinct from the off stop mode and SHALL have a localized label.
 
-#### Scenario: A dedicated instance has entities
+#### Scenario: A dedicated instance has a single select
 
 - **WHEN** a thermostat has its own dedicated instance
-- **THEN** the plugin creates an enable switch and a stop-mode selector for it
+- **THEN** the plugin creates one auto-start/stop select and no enable switch for it
+
+#### Scenario: Options only contain compatible stop modes
+
+- **WHEN** a thermostat supports off, heat and fan_only but not dry
+- **THEN** the select options are disabled, off and fan_only in that order
+- **AND** heat and dry are not offered
+
+#### Scenario: Disabled is localized
+
+- **WHEN** the select is displayed with French or English translations
+- **THEN** the disabled option is labeled "Désactivé" or "Disabled", respectively
 
 #### Scenario: A thermostat configured only through the global instance has no entity
 
 - **WHEN** a thermostat is configured only through the global instance
 - **THEN** the plugin creates no entity for it
 
-#### Scenario: The enable switch suspends detection
+### Requirement: Combined select controls enable state and stop mode
 
-- **WHEN** the enable switch is turned off
-- **THEN** the manager stops accumulating and releases any stop it had applied
+The select SHALL display disabled when the effective enable state is false and the configured stop mode when it is true. Selecting disabled SHALL suspend detection while retaining the saved stop mode. Selecting a supported stop mode SHALL save that mode and enable the feature together. The disabled value SHALL never be stored or applied as an HVAC stop mode.
+
+#### Scenario: Disabled suspends detection and releases a stop
+
+- **WHEN** the user selects disabled while an automatic stop is detected
+- **THEN** the feature is disabled, accumulation stops and the stop request is released
+- **AND** the last configured stop mode is retained
+
+#### Scenario: A stop mode enables the feature
+
+- **WHEN** the user selects a supported stop mode while the feature is disabled
+- **THEN** that mode is saved and the feature is enabled without an intermediate persisted configuration
+- **AND** the selected mode is applied to any subsequent automatic stop
+
+#### Scenario: Off enables the feature rather than disabling it
+
+- **WHEN** the user selects off
+- **THEN** the feature is enabled and its automatic stops request the off HVAC mode
+
+#### Scenario: Unsupported modes are refused
+
+- **WHEN** a user attempts to select a mode not offered for that thermostat
+- **THEN** the selection is refused explicitly and neither the enable state nor the saved stop mode changes
+
+#### Scenario: Configuration edits and restart preserve the displayed state
+
+- **WHEN** the configured enable state or stop mode changes, or the integration restarts
+- **THEN** the select displays the effective configured value rather than a stale restored entity state
+
+### Requirement: Upgrade from separate switch and select
+
+When upgrading an existing dedicated plugin entry, the plugin SHALL remove only that entry's former enable-switch entity and retain the existing select identity and configuration values. Repeated setup SHALL not recreate the switch or duplicate the select.
+
+#### Scenario: An existing disabled entry keeps its settings
+
+- **WHEN** an existing entry has its enable state set to false and its stop mode set to dry
+- **THEN** upgrading removes its former plugin enable switch and the existing select displays disabled
+- **AND** the entry retains enabled=false and stop mode dry
+
+#### Scenario: Other entities are not removed during upgrade
+
+- **WHEN** the plugin removes its former enable switch
+- **THEN** entities belonging to another integration or config entry remain unchanged
+
+#### Scenario: Upgrade is idempotent
+
+- **WHEN** the same dedicated entry is set up again after upgrade
+- **THEN** it still owns exactly one select with the same identity and no enable switch
 
 ### Requirement: Migration from the core configuration
 

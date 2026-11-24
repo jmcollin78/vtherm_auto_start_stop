@@ -15,12 +15,14 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
     CONF_VTHERM_UNIQUE_ID,
     DATA_ENTRIES,
     DOMAIN,
+    ENTITY_ENABLE_SUFFIX,
     PLATFORMS,
     VT_DOMAIN,
 )
@@ -83,7 +85,23 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one global or dedicated entry."""
-    _entries(hass)[entry.entry_id] = entry_config(entry)
+    values = entry_config(entry)
+    _entries(hass)[entry.entry_id] = values
+    unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
+    if unique_id:
+        registry = er.async_get(hass)
+        switch_id = registry.async_get_entity_id(
+            "switch", DOMAIN, f"{unique_id}_{ENTITY_ENABLE_SUFFIX}"
+        )
+        legacy_switch = registry.async_get(switch_id) if switch_id else None
+        if (
+            legacy_switch is not None
+            and legacy_switch.config_entry_id == entry.entry_id
+        ):
+            _LOGGER.info(
+                "%s - removing superseded enable switch %s", entry.title, switch_id
+            )
+            registry.async_remove(legacy_switch.entity_id)
     register_factory(hass, AutoStartStopManagerFactory(hass))
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

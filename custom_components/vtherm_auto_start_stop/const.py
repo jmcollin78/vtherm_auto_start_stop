@@ -126,14 +126,15 @@ ATTR_STOP_MODE = "auto_start_stop_stop_mode"
 # Entities
 # ---------------------------------------------------------------------------
 
-PLATFORMS = ["switch", "select"]
+PLATFORMS = ["select"]
 
-#: Platform sub-keys used inside the add-entities registry.
-PLATFORM_SWITCH = "switch"
-PLATFORM_SELECT = "select"
+#: Select-only value: disables detection without changing the saved stop mode.
+SELECT_DISABLED = "disabled"
 
-#: Entity unique-id suffix (appended to the thermostat unique id).
+#: Former switch unique-id suffix, retained only for registry cleanup.
 ENTITY_ENABLE_SUFFIX = "auto_start_stop_enable"
+
+#: Select unique-id suffix (appended to the thermostat unique id).
 ENTITY_STOP_MODE_SUFFIX = "auto_start_stop_stop_mode"
 
 # ---------------------------------------------------------------------------

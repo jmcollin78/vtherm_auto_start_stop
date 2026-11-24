@@ -1,6 +1,6 @@
-"""Base entity shared by the plugin entities of one thermostat.
+"""Base entity for the plugin select of one thermostat.
 
-The plugin entities belong to a **dedicated** config entry and are shown on the
+The plugin select belongs to a **dedicated** config entry and is shown on the
 thermostat device, so the dashboard groups them with the thermostat they
 configure. A thermostat configured only through the global instance owns no
 entry at all, hence no entity: this is the phase-1 trade-off explained in the
@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -112,13 +113,16 @@ class AutoStartStopEntity(Entity):
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
         return entry_config(entry) if entry else {}
 
-    def _persist(self, key: str, value: object) -> None:
-        """Store a value in the entry options so it survives a restart."""
+    def _persist(self, values: dict[str, object]) -> None:
+        """Store related values in one options update."""
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
         if entry is None:
-            return
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="missing_configuration",
+            )
         current = entry_config(entry)
-        if current.get(key) == value:
+        if all(current.get(key) == value for key, value in values.items()):
             return
-        current[key] = value
+        current.update(values)
         self.hass.config_entries.async_update_entry(entry, options=current)

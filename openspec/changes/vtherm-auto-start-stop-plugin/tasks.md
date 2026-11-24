@@ -36,9 +36,11 @@ Tasks reopened below describe the approved simplification; their earlier exclusi
 
 ## 5. Entities
 
-- [x] 5.1 Remove exclusion checks from the registry and switch/select platforms; verify every eligible dedicated instance owns an enable switch and a stop-mode selector even when disabled, can be re-enabled through the same controls, and a thermostat configured only through the global instance still owns no dedicated entity
-- [x] 5.2 Verify the switch turned off stops accumulation and releases an applied stop
-- [x] 5.3 Verify the selector changes the applied stop mode on the next detection
+- [x] 5.1 Forward only the select platform, remove the switch implementation and simplify the registry to one callback; verify each eligible dedicated instance owns exactly one select with the existing unique id even when disabled, global-only thermostats own no entity, and delete/recreate does not duplicate or lose the select
+- [x] 5.2 Project enabled=false as the disabled select option and implement selecting disabled without changing the saved stop mode; verify accumulated error stays frozen, a detected stop is released, and configuration edits and restart override stale restored entity state
+- [x] 5.3 Implement selecting a compatible stop mode as one persisted update setting that mode and enabled=true, applying the runtime mode before enabling detection; verify off enables rather than disables, fan_only/dry are filtered by capabilities, and unsupported choices raise an explicit error without changing configuration or runtime state
+- [x] 5.4 Remove each dedicated entry's former plugin enable switch from the entity registry during setup, preserving its configuration and existing select identity; verify disabled entries remain disabled, cleanup is idempotent and entities belonging to another integration or config entry are untouched
+- [x] 5.5 Translate the combined select name and all options in strings and English/French resources, and update the README with disabled-versus-off behavior and upgrade guidance for old switch automations; verify localized option keys match the entity options and documented examples match the selection and upgrade tests
 
 ## 6. Migration from the core configuration
 
@@ -47,11 +49,11 @@ Tasks reopened below describe the approved simplification; their earlier exclusi
 
 ## 7. Integration verification
 
-- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity; then verify the direct dedicated flow, global enabled/local disabled and global disabled/local enabled cases, and return to global values after removing the dedicated entry
+- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity; then verify the direct dedicated flow, global enabled/local disabled and global disabled/local enabled cases, the single select including disabled/off and old-switch removal after upgrade, and return to global values after removing the dedicated entry
   - This is the validation point of `core-auto-start-stop-delegation` task 5.3, which is blocked until this task runs. Report the outcome back there.
   - Automated regressions cover the revised configuration flow, overrides, controls and entry removal. They do not replace this check against the actual delegated core; no deployment or on-instance validation was performed during this apply.
 - [x] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager on reload and the installation keeps running
-- [x] 7.3 Re-run the integration test suite after the configuration simplification and verify no test fails, including the direct-flow, disabled-configuration, entity-lifecycle and unchanged eligibility regressions
+- [x] 7.3 Re-run the integration test suite after the combined-select change and verify no test fails, including direct-flow, disabled-configuration, atomic selection, entity-upgrade and unchanged eligibility regressions
 
 ## Workflow follow-up
 

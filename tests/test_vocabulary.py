@@ -78,6 +78,30 @@ def test_configuration_translations_match_direct_flow(filename):
     assert content["options"]["step"]["init"]["data"]["enabled"]
 
 
+@pytest.mark.parametrize(
+    "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
+)
+def test_combined_select_translations_match_entity_options(filename):
+    root = Path(plugin_const.__file__).parent
+    content = json.loads((root / filename).read_text(encoding="utf-8"))
+    assert set(content["entity"]) == {"select"}
+    select = content["entity"]["select"][plugin_const.ENTITY_STOP_MODE_SUFFIX]
+    assert select["name"]
+    assert set(select["state"]) == {
+        plugin_const.SELECT_DISABLED, *plugin_const.STOP_MODES
+    }
+    assert all(select["state"].values())
+    assert select["state"][plugin_const.SELECT_DISABLED] == (
+        "D\u00e9sactiv\u00e9" if filename.endswith("fr.json") else "Disabled"
+    )
+    assert set(
+        content["selector"][plugin_const.CONF_STOP_MODE]["options"]
+    ) == set(plugin_const.STOP_MODES)
+    exceptions = content["exceptions"]
+    assert "{option}" in exceptions["invalid_auto_start_stop_option"]["message"]
+    assert exceptions["missing_configuration"]["message"]
+
+
 def test_every_constant_is_referenced():
     """Task 1.2: no constant is declared and left unused.
 

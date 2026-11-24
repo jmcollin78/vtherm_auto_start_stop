@@ -69,15 +69,24 @@
     }
   },
   "entity": {
-    "switch": {
-      "auto_start_stop_enable": {
-        "name": "Auto start/stop"
-      }
-    },
     "select": {
       "auto_start_stop_stop_mode": {
-        "name": "Auto start/stop stop mode"
+        "name": "Auto start/stop",
+        "state": {
+          "disabled": "Disabled",
+          "off": "Off",
+          "fan_only": "Fan only",
+          "dry": "Dry"
+        }
       }
+    }
+  },
+  "exceptions": {
+    "invalid_auto_start_stop_option": {
+      "message": "Unsupported auto start/stop option: {option}."
+    },
+    "missing_configuration": {
+      "message": "The auto start/stop configuration no longer exists."
     }
   }
 }
