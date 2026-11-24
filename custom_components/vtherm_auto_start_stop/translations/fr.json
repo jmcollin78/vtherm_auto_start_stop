@@ -20,25 +20,11 @@
       },
       "thermostat_options": {
         "title": "Paramètres du thermostat",
-        "description": "Valeurs propres à ce thermostat. Les champs laissés par défaut héritent de l'instance globale.",
+        "description": "Ces valeurs remplacent les valeurs globales pour ce thermostat, y compris l'état activé ou désactivé.",
         "data": {
           "auto_start_stop_level": "Niveau",
           "auto_start_stop_stop_mode": "Mode d'arrêt",
           "enabled": "Activé"
-        }
-      },
-      "exclusion": {
-        "title": "Exclure un thermostat",
-        "description": "Le thermostat n'utilisera pas du tout la fonction start/stop automatique, comme si elle n'avait jamais été activée. La fonction du core est désactivée pour lui.",
-        "data": {
-          "target_entity": "Thermostat"
-        }
-      },
-      "menu": {
-        "title": "Que souhaitez-vous configurer ?",
-        "menu_options": {
-          "thermostat": "Un thermostat",
-          "exclusion": "Exclure un thermostat"
         }
       }
     },
@@ -48,8 +34,20 @@
       "invalid_entity": "Le thermostat sélectionné n'existe plus."
     },
     "abort": {
-      "already_configured": "Ce thermostat possède déjà une configuration de start/stop automatique.",
-      "exclusion_not_configurable": "Une exclusion ne porte aucun paramètre. Supprimez-la et configurez le thermostat à la place."
+      "already_configured": "Ce thermostat possède déjà une configuration de start/stop automatique."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Paramètres du start/stop automatique",
+        "description": "Modifiez cette configuration. Les paramètres propres au thermostat sont prioritaires sur les valeurs globales.",
+        "data": {
+          "auto_start_stop_level": "Niveau",
+          "auto_start_stop_stop_mode": "Mode d'arrêt",
+          "enabled": "Activé"
+        }
+      }
     }
   },
   "selector": {

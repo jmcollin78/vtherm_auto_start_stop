@@ -20,25 +20,11 @@
       },
       "thermostat_options": {
         "title": "Thermostat settings",
-        "description": "Values of this thermostat. Fields left at the default inherit the global instance.",
+        "description": "These values override the global defaults for this thermostat, including the enable state.",
         "data": {
           "auto_start_stop_level": "Level",
           "auto_start_stop_stop_mode": "Stop mode",
           "enabled": "Enabled"
-        }
-      },
-      "exclusion": {
-        "title": "Exclude a thermostat",
-        "description": "The thermostat will not use the auto start/stop feature at all, exactly as if it had never been enabled. The core feature is cleared for it.",
-        "data": {
-          "target_entity": "Thermostat"
-        }
-      },
-      "menu": {
-        "title": "What do you want to configure?",
-        "menu_options": {
-          "thermostat": "A thermostat",
-          "exclusion": "Exclude a thermostat"
         }
       }
     },
@@ -48,8 +34,20 @@
       "invalid_entity": "The selected thermostat no longer exists."
     },
     "abort": {
-      "already_configured": "This thermostat already has an auto start/stop configuration.",
-      "exclusion_not_configurable": "An exclusion carries no parameter. Remove it and configure the thermostat instead."
+      "already_configured": "This thermostat already has an auto start/stop configuration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Auto start/stop settings",
+        "description": "Change this configuration. Dedicated thermostat settings take precedence over global defaults.",
+        "data": {
+          "auto_start_stop_level": "Level",
+          "auto_start_stop_stop_mode": "Stop mode",
+          "enabled": "Enabled"
+        }
+      }
     }
   },
   "selector": {

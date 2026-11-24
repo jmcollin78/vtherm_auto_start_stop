@@ -1,8 +1,8 @@
 """The VTherm auto start/stop integration.
 
 One integration, two entry shapes: a single optional **global** entry providing
-installation-wide defaults, and per-thermostat **dedicated** entries (which may
-be exclusions). The integration registers a feature-manager factory through
+installation-wide defaults, and per-thermostat **dedicated** overrides.
+The integration registers a feature-manager factory through
 ``vtherm_api``; the core then instantiates one manager per eligible thermostat,
 refreshes it each cycle and resolves it as the auto-start/stop decision owner.
 """
@@ -29,13 +29,10 @@ from .factory import (
     register_factory,
     unregister_factory,
 )
+from .models import CONFIG_KEYS, entry_config
+from .registry import reset_entities
 
 _LOGGER = get_vtherm_logger(__name__)
-
-
-def _entry_config(entry: ConfigEntry) -> dict[str, Any]:
-    """Return the effective values of an entry (options override data)."""
-    return dict(entry.options or entry.data)
 
 
 def _entries(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -48,20 +45,21 @@ async def _reload_thermostats(
 ) -> None:
     """Reload the thermostats whose resolution may have changed.
 
-    A dedicated or exclusion entry only affects its own thermostat; the global
-    entry affects every thermostat without a dedicated one. Reloading the
+    A dedicated entry only affects its own thermostat; the global
+    entry affects every thermostat inheriting at least one field. Reloading the
     thermostat re-runs the factory, so a manager appears, disappears or picks up
     new values without any other action.
     """
     target: str | None = None
     if source_entry is not None:
-        target = _entry_config(source_entry).get(CONF_VTHERM_UNIQUE_ID)
+        target = entry_config(source_entry).get(CONF_VTHERM_UNIQUE_ID)
 
-    overrides = {
-        _entry_config(entry).get(CONF_VTHERM_UNIQUE_ID)
-        for entry in hass.config_entries.async_entries(DOMAIN)
-        if _entry_config(entry).get(CONF_VTHERM_UNIQUE_ID)
-    }
+    overrides: set[str] = set()
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        config = entry_config(entry)
+        unique_id = config.get(CONF_VTHERM_UNIQUE_ID)
+        if unique_id and all(key in config for key in CONFIG_KEYS):
+            overrides.add(unique_id)
 
     tasks = []
     for thermostat_entry in hass.config_entries.async_entries(VT_DOMAIN):
@@ -69,7 +67,7 @@ async def _reload_thermostats(
             if thermostat_entry.unique_id != target:
                 continue
         elif source_entry is not None and thermostat_entry.unique_id in overrides:
-            # The global entry does not cover a thermostat with its own entry.
+            # A complete dedicated configuration inherits no global field.
             continue
         tasks.append(hass.config_entries.async_reload(thermostat_entry.entry_id))
     if tasks:
@@ -84,8 +82,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up one global, dedicated or exclusion entry."""
-    _entries(hass)[entry.entry_id] = _entry_config(entry)
+    """Set up one global or dedicated entry."""
+    _entries(hass)[entry.entry_id] = entry_config(entry)
     register_factory(hass, AutoStartStopManagerFactory(hass))
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -96,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Apply changed options and reload the affected thermostats."""
-    _entries(hass)[entry.entry_id] = _entry_config(entry)
+    _entries(hass)[entry.entry_id] = entry_config(entry)
     await _reload_thermostats(hass, entry)
 
 
@@ -105,6 +103,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
 
+    unique_id = entry_config(entry).get(CONF_VTHERM_UNIQUE_ID)
+    if unique_id:
+        reset_entities(hass, unique_id)
     _entries(hass).pop(entry.entry_id, None)
     if not _entries(hass):
         unregister_factory(hass)

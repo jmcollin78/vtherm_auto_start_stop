@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_EXCLUDED,
     CONF_VTHERM_UNIQUE_ID,
     DATA_ADD_ENTITIES,
     DATA_CREATED,
@@ -22,6 +21,7 @@ from .const import (
     PLATFORM_SELECT,
     PLATFORM_SWITCH,
 )
+from .models import entry_config
 
 if TYPE_CHECKING:
     from .manager import AutoStartStopManager
@@ -56,17 +56,11 @@ def unregister_callback(hass: HomeAssistant, platform: str, unique_id: str) -> N
 
 
 def dedicated_entry(hass: HomeAssistant, unique_id: str):
-    """Return the configurable dedicated entry of a thermostat, if any.
-
-    An exclusion is not configurable and owns no entity, so it is reported as
-    absent.
-    """
+    """Return the dedicated entry of a thermostat, including when disabled."""
     for entry in hass.config_entries.async_entries(DOMAIN):
-        values = dict(entry.options or entry.data)
+        values = entry_config(entry)
         if values.get(CONF_VTHERM_UNIQUE_ID) != unique_id:
             continue
-        if values.get(CONF_EXCLUDED):
-            return None
         return entry
     return None
 

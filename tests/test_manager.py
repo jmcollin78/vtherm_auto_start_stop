@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from homeassistant.core import State
 
 from custom_components.vtherm_auto_start_stop.const import (
     ATTR_ACCUMULATED_ERROR,
@@ -66,20 +67,42 @@ def test_manager_detached_without_configuration(manager_factory, thermostat, fak
     assert VT_UNIQUE_ID not in fake_hass.data[DOMAIN][DATA_MANAGERS]
 
 
-def test_manager_detached_when_excluded(
-    manager_factory, thermostat, add_global_entry, add_dedicated_entry, fake_hass
+@pytest.mark.parametrize("dedicated", [False, True])
+async def test_disabled_manager_stays_configured(
+    manager_factory,
+    thermostat,
+    add_global_entry,
+    add_dedicated_entry,
+    fake_hass,
+    dedicated,
 ):
-    """An exclusion leaves nothing behind (tasks 2.5, 2.6)."""
-    add_global_entry()
-    add_dedicated_entry(excluded=True)
+    """Disabled detection retains its configuration and frozen diagnostics."""
+    add_global_entry(enabled=dedicated)
+    if dedicated:
+        add_dedicated_entry(enabled=False)
     manager = install(manager_factory, thermostat)
-    assert manager.is_configured is False
-    assert VT_UNIQUE_ID not in fake_hass.data[DOMAIN][DATA_MANAGERS]
+    manager.restore_state(
+        State(
+            thermostat.entity_id,
+            "heat",
+            {MANAGER_ATTRIBUTES_KEY: {ATTR_ACCUMULATED_ERROR: -1.25}},
+        )
+    )
+    for _ in range(10):
+        thermostat.advance(1)
+        assert await manager.refresh_state() is False
+
+    assert manager.is_configured is True
+    assert fake_hass.data[DOMAIN][DATA_MANAGERS][VT_UNIQUE_ID] is manager
+    assert thermostat.refresh_requests == 0
 
     attributes: dict = {}
     manager.add_custom_attributes(attributes)
-    assert attributes[ATTR_IS_CONFIGURED] is False
-    assert MANAGER_ATTRIBUTES_KEY not in attributes
+    assert attributes[ATTR_IS_CONFIGURED] is True
+    section = attributes[MANAGER_ATTRIBUTES_KEY]
+    assert section[ATTR_ENABLE] is False
+    assert section[ATTR_IS_STOP_DETECTED] is False
+    assert section[ATTR_ACCUMULATED_ERROR] == -1.25
 
 
 # ---------------------------------------------------------------------------

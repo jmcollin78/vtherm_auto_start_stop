@@ -9,7 +9,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vtherm_auto_start_stop.const import (
     CONF_ENABLED,
-    CONF_EXCLUDED,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_TARGET_ENTITY,
@@ -20,6 +19,7 @@ from custom_components.vtherm_auto_start_stop.const import (
     LEVEL_SLOW,
     STOP_MODE_DRY,
 )
+from custom_components.vtherm_auto_start_stop.models import entry_config
 
 THERMOSTAT_ENTITY = "climate.thermostat"
 THERMOSTAT_UNIQUE_ID = "vtherm-uid-1"
@@ -110,6 +110,7 @@ async def test_first_flow_is_the_global_branch(hass):
     result = await start_flow(hass)
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "global"
+    assert CONF_ENABLED in result["data_schema"].schema
 
 
 async def test_global_entry_is_created_and_unique(hass):
@@ -129,24 +130,28 @@ async def test_global_entry_is_created_and_unique(hass):
 
     # A second global entry cannot be created: the unique id is the domain.
     second = await start_flow(hass)
-    assert second["type"] == FlowResultType.MENU
-    assert second["step_id"] == "menu"
+    assert second["type"] == FlowResultType.FORM
+    assert second["step_id"] == "thermostat"
 
 
-async def test_menu_offers_a_thermostat_and_an_exclusion(hass):
-    """Task 2.3/2.5: the second flow asks what to configure."""
+async def test_additional_entry_opens_the_thermostat_selector(hass):
+    """The dedicated flow has no intermediate intent menu."""
     MockConfigEntry(
         domain=DOMAIN,
         data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
     ).add_to_hass(hass)
     register_thermostat(hass)
     result = await start_flow(hass)
-    assert result["type"] == FlowResultType.MENU
-    assert set(result["menu_options"]) == {"thermostat", "exclusion"}
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "thermostat"
+    assert CONF_TARGET_ENTITY in result["data_schema"].schema
 
 
 @pytest.mark.parametrize("thermostat_type", ["over_climate", "thermostat_over_climate"])
-async def test_dedicated_entry_stores_the_thermostat_unique_id(hass, thermostat_type):
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_dedicated_entry_stores_the_thermostat_unique_id(
+    hass, thermostat_type, enabled
+):
     """Task 2.3: the entry stores the thermostat unique id, not the entity id."""
     MockConfigEntry(
         domain=DOMAIN,
@@ -155,28 +160,26 @@ async def test_dedicated_entry_stores_the_thermostat_unique_id(hass, thermostat_
     register_thermostat(hass, thermostat_type=thermostat_type)
 
     result = await start_flow(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next_step_id": "thermostat"}
-    )
     assert result["step_id"] == "thermostat"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
     )
     assert result["step_id"] == "thermostat_options"
+    assert CONF_ENABLED in result["data_schema"].schema
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
             CONF_LEVEL: LEVEL_FAST,
             CONF_STOP_MODE: STOP_MODE_DRY,
-            CONF_ENABLED: True,
+            CONF_ENABLED: enabled,
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_VTHERM_UNIQUE_ID] == THERMOSTAT_UNIQUE_ID
     assert result["data"][CONF_LEVEL] == LEVEL_FAST
-    assert CONF_EXCLUDED not in result["data"]
+    assert result["data"][CONF_ENABLED] is enabled
 
 
 @pytest.mark.parametrize(
@@ -203,9 +206,6 @@ async def test_ineligible_thermostat_reports_its_reason(
 
     result = await start_flow(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next_step_id": "thermostat"}
-    )
-    result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
     )
     assert result["type"] == FlowResultType.FORM
@@ -213,28 +213,52 @@ async def test_ineligible_thermostat_reports_its_reason(
     assert result["errors"] == {CONF_TARGET_ENTITY: error}
 
 
-async def test_exclusion_entry_carries_no_parameter(hass):
-    """Task 2.5: an exclusion creates a dedicated entry with no value."""
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_dedicated_enable_can_be_edited(hass, enabled):
+    """Options override values without losing the thermostat identity."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: THERMOSTAT_UNIQUE_ID,
+            CONF_LEVEL: LEVEL_SLOW,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: not enabled,
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    assert CONF_ENABLED in result["data_schema"].schema
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_LEVEL: LEVEL_SLOW,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: enabled,
+        },
+    )
+    await hass.async_block_till_done()
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLED] is enabled
+    assert entry_config(entry)[CONF_VTHERM_UNIQUE_ID] == THERMOSTAT_UNIQUE_ID
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_dedicated_settings_start_from_global_enable_state(hass, enabled):
     MockConfigEntry(
         domain=DOMAIN,
-        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+        data={CONF_ENABLED: enabled},
+    ).add_to_hass(hass)
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_VTHERM_UNIQUE_ID: "another-thermostat"},
+        options={CONF_ENABLED: not enabled},
     ).add_to_hass(hass)
     register_thermostat(hass)
 
-    result = await start_flow(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next_step_id": "exclusion"}
-    )
-    assert result["step_id"] == "exclusion"
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"] == {
-        CONF_VTHERM_UNIQUE_ID: THERMOSTAT_UNIQUE_ID,
-        CONF_EXCLUDED: True,
-    }
+    result = await reach_thermostat_options(hass)
+    defaults = result["data_schema"]({})
+    assert defaults[CONF_ENABLED] is enabled
 
 
 # ---------------------------------------------------------------------------
@@ -281,9 +305,6 @@ async def reach_thermostat_options(hass: HomeAssistant):
     """Walk the flow up to the dedicated values step."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"next_step_id": "thermostat"}
     )
     return await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}

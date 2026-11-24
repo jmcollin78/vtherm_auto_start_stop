@@ -15,7 +15,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
-    CONF_EXCLUDED,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
     ENTITY_STOP_MODE_SUFFIX,
@@ -23,6 +22,7 @@ from .const import (
     STOP_MODES,
 )
 from .entity import AutoStartStopEntity
+from .models import entry_config
 from .registry import ensure_entities, register_callback, unregister_callback
 
 
@@ -32,9 +32,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Register the select callback of a dedicated entry."""
-    values = dict(entry.options or entry.data)
+    values = entry_config(entry)
     unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
-    if not unique_id or values.get(CONF_EXCLUDED):
+    if not unique_id:
         return
 
     register_callback(hass, PLATFORM_SELECT, unique_id, async_add_entities)
@@ -76,14 +76,14 @@ class AutoStartStopStopModeSelect(AutoStartStopEntity, SelectEntity, RestoreEnti
         return self._entry_values().get(CONF_STOP_MODE)
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last option and push it into the manager."""
+        """Apply configured values before considering a restored option."""
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
-        option = last.state if last is not None else None
-        if option not in (self.options or []):
-            option = self.current_option
+        option = self._entry_values().get(CONF_STOP_MODE, self.current_option)
+        if option not in self.options:
+            option = last.state if last is not None else None
         manager = self.manager
-        if manager is not None and option is not None:
+        if manager is not None and option in self.options:
             manager.restore_entity_state(manager.enabled, option)
         self.async_write_ha_state()
 

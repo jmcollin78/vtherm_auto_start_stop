@@ -1,4 +1,4 @@
-"""Layered configuration resolution (tasks 2.1, 2.5, 2.8)."""
+"""Layered configuration resolution and dedicated enable overrides."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import pytest
 
 from custom_components.vtherm_auto_start_stop.const import (
     CONF_ENABLED,
-    CONF_EXCLUDED,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
@@ -20,7 +19,6 @@ from custom_components.vtherm_auto_start_stop.models import (
     default_config,
     effective_config,
     has_dedicated_instance,
-    is_exclusion,
     legacy_level,
     normalize_level,
     normalize_stop_mode,
@@ -41,10 +39,6 @@ def dedicated_entry(level=LEVEL_FAST, stop_mode=STOP_MODE_DRY, enabled=True):
         CONF_STOP_MODE: stop_mode,
         CONF_ENABLED: enabled,
     }
-
-
-def exclusion_entry(unique_id=VT_A):
-    return {CONF_VTHERM_UNIQUE_ID: unique_id, CONF_EXCLUDED: True}
 
 
 @pytest.mark.parametrize(
@@ -96,58 +90,81 @@ def test_cascade(entries, expected):
     assert effective_config(entries, VT_A) == expected
 
 
-def test_dedicated_layer_inherits_undefined_keys():
+@pytest.mark.parametrize("enabled", [False, True])
+def test_dedicated_layer_inherits_undefined_keys(enabled):
     """A dedicated entry only overrides the keys it carries."""
     entries = {
-        "global": global_entry(level=LEVEL_MEDIUM, stop_mode=STOP_MODE_FAN_ONLY),
+        "global": global_entry(
+            level=LEVEL_MEDIUM, stop_mode=STOP_MODE_FAN_ONLY, enabled=enabled
+        ),
         "ded": {CONF_VTHERM_UNIQUE_ID: VT_A, CONF_LEVEL: LEVEL_FAST},
     }
     config = effective_config(entries, VT_A)
     assert config[CONF_LEVEL] == LEVEL_FAST
     assert config[CONF_STOP_MODE] == STOP_MODE_FAN_ONLY
-    assert config[CONF_ENABLED] is True
+    assert config[CONF_ENABLED] is enabled
 
 
-def test_exclusion_short_circuits_global():
-    """An exclusion resolves to no configuration, even with a global instance."""
-    entries = {"global": global_entry(), "excl": exclusion_entry()}
-    assert effective_config(entries, VT_A) is None
-
-
-def test_exclusion_alone_resolves_to_nothing():
-    """An exclusion on its own is not a configuration either."""
-    assert effective_config({"excl": exclusion_entry()}, VT_A) is None
-
-
-def test_exclusion_does_not_affect_other_thermostats():
-    """Opting one thermostat out leaves the others on the global instance."""
-    entries = {"global": global_entry(), "excl": exclusion_entry()}
-    config = effective_config(entries, VT_B)
+@pytest.mark.parametrize("global_enabled", [False, True])
+@pytest.mark.parametrize("dedicated_enabled", [False, True])
+def test_dedicated_enable_state_wins(global_enabled, dedicated_enabled):
+    entries = {
+        "global": global_entry(enabled=global_enabled),
+        "ded": dedicated_entry(enabled=dedicated_enabled),
+    }
+    config = effective_config(entries, VT_A)
     assert config is not None
-    assert config[CONF_LEVEL] == LEVEL_MEDIUM
+    assert config[CONF_ENABLED] is dedicated_enabled
+    assert effective_config(entries, VT_B)[CONF_ENABLED] is global_enabled
 
 
-def test_removing_the_exclusion_restores_the_global_instance():
-    """Dropping the exclusion entry puts the thermostat back on the global one."""
-    entries = {"global": global_entry(), "excl": exclusion_entry()}
-    assert effective_config(entries, VT_A) is None
-    entries.pop("excl")
-    assert effective_config(entries, VT_A) is not None
+@pytest.mark.parametrize("enabled", [False, True])
+def test_dedicated_configuration_works_without_global(enabled):
+    entries = {"ded": dedicated_entry(enabled=enabled)}
+    config = effective_config(entries, VT_A)
+    assert config is not None
+    assert config[CONF_ENABLED] is enabled
+    assert effective_config(entries, VT_B) is None
 
 
 @pytest.mark.parametrize(
-    ("entry", "expected"),
-    [({}, False), ({CONF_EXCLUDED: True}, True), ({CONF_EXCLUDED: False}, False)],
+    "entries",
+    [{"global": {}}, {"ded": {CONF_VTHERM_UNIQUE_ID: VT_A}}],
 )
-def test_is_exclusion(entry, expected):
-    assert is_exclusion(entry) is expected
+def test_entry_without_parameters_uses_plugin_defaults(entries):
+    assert effective_config(entries, VT_A) == default_config()
 
 
-def test_has_dedicated_instance_ignores_exclusion():
-    """An exclusion owns no entity: it is not a configurable instance."""
-    entries = {"excl": exclusion_entry()}
+@pytest.mark.parametrize("enabled", [False, True])
+def test_removing_dedicated_restores_global(enabled):
+    entries = {
+        "global": global_entry(enabled=enabled),
+        "ded": dedicated_entry(enabled=not enabled),
+    }
+    entries.pop("ded")
+    assert effective_config(entries, VT_A) == global_entry(enabled=enabled)
+
+
+def test_removing_global_keeps_only_dedicated_configuration():
+    entries = {"global": global_entry(), "ded": dedicated_entry(enabled=False)}
+    entries.pop("global")
+    config = effective_config(entries, VT_A)
+    assert config[CONF_LEVEL] == LEVEL_FAST
+    assert config[CONF_ENABLED] is False
+    assert effective_config(entries, VT_B) is None
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [{}, {"global": global_entry()}, {"other": {CONF_VTHERM_UNIQUE_ID: VT_B}}],
+)
+def test_has_no_dedicated_instance(entries):
     assert has_dedicated_instance(entries, VT_A) is False
-    entries = {"ded": dedicated_entry()}
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_has_dedicated_instance_even_when_disabled(enabled):
+    entries = {"ded": dedicated_entry(enabled=enabled)}
     assert has_dedicated_instance(entries, VT_A) is True
 
 

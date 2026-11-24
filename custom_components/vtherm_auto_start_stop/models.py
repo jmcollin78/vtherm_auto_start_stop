@@ -6,10 +6,8 @@ One integration, two entry shapes:
   whole installation;
 * a **dedicated instance** — one per thermostat, keyed by its ``unique_id``.
 
-A dedicated entry may also be an **exclusion**: it carries no parameter and only
-marks the thermostat as opting out of the global instance. An exclusion resolves
-to *no effective configuration*, which is what makes an opted-out thermostat
-indistinguishable from a thermostat the core feature was never enabled on.
+A dedicated entry overrides the global values it defines, including an explicit
+false enable state. Disabled configurations remain effective configurations.
 
 The resolution is implemented once, here, and every consumer reads its result so
 the order cannot diverge between the manager and the entities.
@@ -17,11 +15,13 @@ the order cannot diverge between the manager and the entities.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
 
 from .const import (
     CONF_ENABLED,
-    CONF_EXCLUDED,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
@@ -34,10 +34,13 @@ from .const import (
     TYPE_LEVEL,
 )
 
-#: Keys a configuration entry may carry. Entry metadata (``vtherm_unique_id``,
-#: ``excluded``) is deliberately excluded: it belongs to the entry, not to the
-#: configuration it holds.
+#: Configuration values, distinct from the target entry metadata.
 CONFIG_KEYS = (CONF_LEVEL, CONF_STOP_MODE, CONF_ENABLED)
+
+
+def entry_config(entry: ConfigEntry) -> dict[str, Any]:
+    """Return entry data with options overriding individual fields."""
+    return {**entry.data, **entry.options}
 
 
 def default_config() -> dict[str, Any]:
@@ -54,39 +57,29 @@ def default_config() -> dict[str, Any]:
     }
 
 
-def is_exclusion(entry: dict[str, Any]) -> bool:
-    """Return whether an entry is an exclusion (no parameter, opt-out only)."""
-    return bool(entry.get(CONF_EXCLUDED))
-
-
 def _layers(
     entries: dict[str, dict[str, Any]], vtherm_unique_id: str
-) -> tuple[dict[str, Any], dict[str, Any], bool]:
-    """Return the global layer, the dedicated layer and the exclusion flag.
-
-    The dedicated layer is the first entry targeting this thermostat. An
-    exclusion is reported separately so the caller can short-circuit before
-    merging anything.
-    """
-    global_layer: dict[str, Any] = {}
-    dedicated_layer: dict[str, Any] = {}
-    excluded = False
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Return the global and dedicated layers, or None for absent entries."""
+    global_layer: dict[str, Any] | None = None
+    dedicated_layer: dict[str, Any] | None = None
 
     for entry in entries.values():
         target = entry.get(CONF_VTHERM_UNIQUE_ID)
         if target == vtherm_unique_id:
-            if is_exclusion(entry):
-                excluded = True
-                continue
+            if dedicated_layer is None:
+                dedicated_layer = {}
             dedicated_layer.update(
                 {key: entry[key] for key in CONFIG_KEYS if key in entry}
             )
         elif not target:
+            if global_layer is None:
+                global_layer = {}
             global_layer.update(
                 {key: entry[key] for key in CONFIG_KEYS if key in entry}
             )
 
-    return global_layer, dedicated_layer, excluded
+    return global_layer, dedicated_layer
 
 
 def effective_config(
@@ -95,34 +88,29 @@ def effective_config(
 ) -> dict[str, Any] | None:
     """Resolve the effective configuration of one thermostat.
 
-    Order: exclusion (short-circuit), plugin defaults, global instance,
-    dedicated instance. A layer only overrides the values it defines.
+    Order: plugin defaults, global instance, dedicated instance.
+    A layer only overrides the values it defines.
 
-    Returns ``None`` when the thermostat has no effective configuration: no
-    global instance and no dedicated instance, or an exclusion entry. ``None``
-    is the single predicate of ``factory.supports()``.
+    Returns ``None`` only when no global or dedicated instance exists.
+    Disabled configurations remain present so the manager keeps its controls.
     """
-    global_layer, dedicated_layer, excluded = _layers(entries, vtherm_unique_id)
+    global_layer, dedicated_layer = _layers(entries, vtherm_unique_id)
 
-    if excluded:
-        return None
-    if not global_layer and not dedicated_layer:
+    if global_layer is None and dedicated_layer is None:
         return None
 
     config = default_config()
-    config.update(global_layer)
-    config.update(dedicated_layer)
+    if global_layer is not None:
+        config.update(global_layer)
+    if dedicated_layer is not None:
+        config.update(dedicated_layer)
     return config
 
 
 def dedicated_entries(
     entries: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Return the dedicated entries keyed by the thermostat they target.
-
-    Exclusion entries are returned too: the entity platforms need to know a
-    thermostat owns an entry, and the exclusion case is filtered there.
-    """
+    """Return the dedicated entries keyed by the thermostat they target."""
     result: dict[str, dict[str, Any]] = {}
     for entry in entries.values():
         target = entry.get(CONF_VTHERM_UNIQUE_ID)
@@ -134,12 +122,8 @@ def dedicated_entries(
 def has_dedicated_instance(
     entries: dict[str, dict[str, Any]], vtherm_unique_id: str
 ) -> bool:
-    """Return whether the thermostat owns a configurable dedicated instance.
-
-    An exclusion is not a configurable instance: it owns no entity.
-    """
-    entry = dedicated_entries(entries).get(vtherm_unique_id)
-    return entry is not None and not is_exclusion(entry)
+    """Return whether the thermostat owns a dedicated instance."""
+    return vtherm_unique_id in dedicated_entries(entries)
 
 
 def normalize_level(level: Any) -> TYPE_LEVEL:

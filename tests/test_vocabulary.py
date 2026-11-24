@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from custom_components.vtherm_auto_start_stop import const as plugin_const
 
 
@@ -57,6 +62,20 @@ def test_legacy_keys():
     assert plugin_const.LEGACY_REGULATION_MODE == "auto_regulation_mode"
     assert plugin_const.LEGACY_REGULATION_VALVE == "auto_regulation_valve"
     assert plugin_const.THERMOSTAT_TYPE_CLIMATE == "thermostat_over_climate"
+
+
+@pytest.mark.parametrize(
+    "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
+)
+def test_configuration_translations_match_direct_flow(filename):
+    root = Path(plugin_const.__file__).parent
+    content = json.loads((root / filename).read_text(encoding="utf-8"))
+    steps = content["config"]["step"]
+    assert set(steps) == {"global", "thermostat", "thermostat_options"}
+    assert set(content["config"]["abort"]) == {"already_configured"}
+    assert steps["global"]["data"]["enabled"]
+    assert steps["thermostat_options"]["data"]["enabled"]
+    assert content["options"]["step"]["init"]["data"]["enabled"]
 
 
 def test_every_constant_is_referenced():

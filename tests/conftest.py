@@ -157,19 +157,13 @@ def add_dedicated_entry(fake_hass: SimpleNamespace):
         level: str = LEVEL_SLOW,
         stop_mode: str = STOP_MODE_OFF,
         enabled=True,
-        excluded: bool = False,
     ):
-        entry = {CONF_VTHERM_UNIQUE_ID: unique_id}
-        if excluded:
-            entry["excluded"] = True
-        else:
-            entry.update(
-                {
-                    CONF_LEVEL: level,
-                    CONF_STOP_MODE: stop_mode,
-                    CONF_ENABLED: enabled,
-                }
-            )
+        entry = {
+            CONF_VTHERM_UNIQUE_ID: unique_id,
+            CONF_LEVEL: level,
+            CONF_STOP_MODE: stop_mode,
+            CONF_ENABLED: enabled,
+        }
         fake_hass.data[DOMAIN]["entries"][unique_id] = entry
         return entry
 

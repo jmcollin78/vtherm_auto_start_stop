@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.vtherm_auto_start_stop.const import (
-    CONF_EXCLUDED,
+    CONF_ENABLED,
     CONF_VTHERM_UNIQUE_ID,
     DATA_ADD_ENTITIES,
     DATA_CREATED,
@@ -59,10 +59,15 @@ def add_platforms(fake_hass, unique_id=VT, created=None):
     register_callback(fake_hass, PLATFORM_SELECT, unique_id, select_cb)
 
 
-def test_entities_created_for_a_dedicated_entry(fake_hass, captured):
+@pytest.mark.parametrize("enabled", [False, True])
+def test_entities_created_for_a_dedicated_entry(fake_hass, captured, enabled):
     """Task 5.1: a dedicated instance owns one switch and one select."""
     fake_hass.config_entries.entries.append(
-        make_entry({CONF_VTHERM_UNIQUE_ID: VT}, entry_id="ded")
+        make_entry(
+            {CONF_VTHERM_UNIQUE_ID: VT},
+            entry_id="ded",
+            options={CONF_ENABLED: enabled},
+        )
     )
     add_platforms(fake_hass, created=captured)
     ensure_entities(fake_hass, VT)
@@ -80,19 +85,6 @@ def test_no_entity_without_a_dedicated_entry(fake_hass, captured):
     assert captured["switch"] == []
     assert captured["select"] == []
     assert VT not in fake_hass.data[DOMAIN].get(DATA_CREATED, {})
-
-
-def test_no_entity_for_an_exclusion(fake_hass, captured):
-    """Task 2.6: an excluded thermostat exposes no entity."""
-    fake_hass.config_entries.entries.append(
-        make_entry({CONF_VTHERM_UNIQUE_ID: VT, CONF_EXCLUDED: True}, entry_id="excl")
-    )
-    add_platforms(fake_hass, created=captured)
-    ensure_entities(fake_hass, VT)
-
-    assert captured["switch"] == []
-    assert captured["select"] == []
-    assert dedicated_entry(fake_hass, VT) is None
 
 
 def test_entities_created_once(fake_hass, captured):

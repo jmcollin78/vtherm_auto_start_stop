@@ -19,6 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN, SIGNAL_MANAGER_UPDATED, VT_DOMAIN
+from .models import entry_config
 
 if TYPE_CHECKING:
     from .manager import AutoStartStopManager
@@ -109,14 +110,14 @@ class AutoStartStopEntity(Entity):
     def _entry_values(self) -> dict:
         """Return the current values of the entry owning this entity."""
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
-        return dict(entry.options or entry.data) if entry else {}
+        return entry_config(entry) if entry else {}
 
     def _persist(self, key: str, value: object) -> None:
         """Store a value in the entry options so it survives a restart."""
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
         if entry is None:
             return
-        current = dict(entry.options or entry.data)
+        current = entry_config(entry)
         if current.get(key) == value:
             return
         current[key] = value

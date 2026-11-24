@@ -7,7 +7,7 @@ thermostat gets an auto-start/stop manager. It applies two gates, in this order:
    regulated by a valve. This is exactly the core feature's predicate, so no
    thermostat gains or loses support compared with the core.
 2. **Effective configuration** — the layered resolution must return a
-   configuration, which excludes an opted-out thermostat.
+   configuration, including when its enable state is false.
 
 The eligibility gate is recomputed on every load, so a thermostat reconfigured
 into an ineligible state after its entry was created is not attached.

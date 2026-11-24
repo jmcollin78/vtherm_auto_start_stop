@@ -18,13 +18,13 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_ENABLED,
-    CONF_EXCLUDED,
     CONF_VTHERM_UNIQUE_ID,
     DEFAULT_ENABLED,
     ENTITY_ENABLE_SUFFIX,
     PLATFORM_SWITCH,
 )
 from .entity import AutoStartStopEntity
+from .models import entry_config
 from .registry import ensure_entities, register_callback, unregister_callback
 
 
@@ -34,9 +34,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Register the switch callback of a dedicated entry."""
-    values = dict(entry.options or entry.data)
+    values = entry_config(entry)
     unique_id = values.get(CONF_VTHERM_UNIQUE_ID)
-    if not unique_id or values.get(CONF_EXCLUDED):
+    if not unique_id:
         return
 
     register_callback(hass, PLATFORM_SWITCH, unique_id, async_add_entities)
@@ -62,15 +62,20 @@ class AutoStartStopEnableSwitch(AutoStartStopEntity, SwitchEntity, RestoreEntity
         )
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last state and push it into the manager."""
+        """Apply configured values before considering restored entity state."""
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
-        if last is not None:
+        manager = self.manager
+        values = self._entry_values()
+        if CONF_ENABLED in values:
+            enabled = bool(values[CONF_ENABLED])
+        elif manager is not None:
+            enabled = manager.enabled
+        elif last is not None:
             enabled = last.state == "on"
         else:
-            enabled = bool(self._entry_values().get(CONF_ENABLED, DEFAULT_ENABLED))
+            enabled = DEFAULT_ENABLED
 
-        manager = self.manager
         if manager is not None:
             await manager.async_set_enabled(enabled)
         self.async_write_ha_state()

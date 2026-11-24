@@ -161,6 +161,10 @@ class AutoStartStopManager:
             self._enabled,
         )
         ensure_entities(self._hass, self._thermostat.unique_id)
+        async_dispatcher_send(
+            self._hass,
+            f"{SIGNAL_MANAGER_UPDATED}_{self._thermostat.unique_id}",
+        )
 
     async def start_listening(self, force: bool = False) -> None:
         """No listeners are required: the core drives the refresh."""
@@ -372,9 +376,8 @@ class AutoStartStopManager:
     def restore_entity_state(self, enabled: bool, stop_mode: str) -> None:
         """Reconcile the manager with the state restored by its entities.
 
-        The entities restore their own last state on startup; they then push it
-        into the manager so the configuration entry and the live behaviour stay
-        consistent with what the dashboard shows.
+        The entities prefer their configured values, falling back to restored
+        state only when no configured value is available.
         """
         self._enabled = enabled
         self._stop_mode = normalize_stop_mode(stop_mode)

@@ -41,7 +41,7 @@ ATTR_IS_CONFIGURED = "is_auto_start_stop_configured"
 # Config entry keys
 # ---------------------------------------------------------------------------
 
-#: Unique id of the targeted thermostat on a dedicated (or exclusion) entry.
+#: Unique id of the targeted thermostat on a dedicated entry.
 CONF_VTHERM_UNIQUE_ID = "vtherm_unique_id"
 
 #: Configured auto-start/stop level.
@@ -50,12 +50,8 @@ CONF_LEVEL = "auto_start_stop_level"
 #: HVAC mode applied when a stop is detected.
 CONF_STOP_MODE = "auto_start_stop_stop_mode"
 
-#: Persisted enable state of a dedicated instance.
+#: Persisted enable state of a global or dedicated instance.
 CONF_ENABLED = "enabled"
-
-#: Marks a dedicated entry as an exclusion: it carries no parameter and only
-#: tells the plugin the thermostat opts out of the global configuration.
-CONF_EXCLUDED = "excluded"
 
 #: Thermodtat selection key used by the config flow.
 CONF_TARGET_ENTITY = "target_entity"

@@ -65,8 +65,11 @@ def test_supports_requires_an_over_climate_thermostat(fake_hass, add_global_entr
     )
 
 
-def test_supports_refuses_a_valve_regulated_thermostat(fake_hass, add_global_entry):
-    add_global_entry()
+@pytest.mark.parametrize("enabled", [False, True])
+def test_supports_refuses_a_valve_regulated_thermostat(
+    fake_hass, add_global_entry, enabled
+):
+    add_global_entry(enabled=enabled)
     thermostat = RuntimeThermostat()
     thermostat.has_valve_regulation = True
     assert AutoStartStopManagerFactory(fake_hass).supports(thermostat) is False
@@ -78,13 +81,14 @@ def test_supports_requires_an_effective_configuration(fake_hass):
     assert factory.supports(RuntimeThermostat()) is False
 
 
-def test_supports_refuses_an_excluded_thermostat(
-    fake_hass, add_global_entry, add_dedicated_entry
+@pytest.mark.parametrize("enabled", [False, True])
+def test_supports_accepts_a_disabled_configuration(
+    fake_hass, add_global_entry, add_dedicated_entry, enabled
 ):
-    """Task 2.5: an exclusion is not a configuration."""
-    add_global_entry()
-    add_dedicated_entry(excluded=True)
-    assert AutoStartStopManagerFactory(fake_hass).supports(RuntimeThermostat()) is False
+    """Configuration presence, not the enable state, controls attachment."""
+    add_global_entry(enabled=not enabled)
+    add_dedicated_entry(enabled=enabled)
+    assert AutoStartStopManagerFactory(fake_hass).supports(RuntimeThermostat()) is True
 
 
 def test_supports_accepts_a_dedicated_instance(fake_hass, add_dedicated_entry):

@@ -1,13 +1,11 @@
 """Config flow of the auto start/stop plugin.
 
-Three branches share one integration:
+Two branches share one integration:
 
 * the **global** branch — created when no entry exists yet; its ``unique_id`` is
   the domain, so a second global instance is refused;
 * the **dedicated** branch — one per thermostat, its ``unique_id`` being
-  ``<domain>-<thermostat unique id>``;
-* the **exclusion** branch — a dedicated entry with no parameter, telling the
-  plugin the thermostat opts out of the global configuration.
+  ``<domain>-<thermostat unique id>``.
 
 The dedicated branch checks eligibility before the user validates and returns an
 explicit error naming the reason, which is the phase-1 improvement over the core
@@ -32,7 +30,6 @@ from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
     CONF_ENABLED,
-    CONF_EXCLUDED,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_TARGET_ENTITY,
@@ -46,7 +43,7 @@ from .const import (
     THERMOSTAT_TYPE_CLIMATE,
     VT_DOMAIN,
 )
-from .models import default_config, legacy_level
+from .models import default_config, entry_config, legacy_level
 
 _LOGGER = get_vtherm_logger(__name__)
 
@@ -84,7 +81,7 @@ def _options_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _target_schema(exclude: list[str] | None = None) -> vol.Schema:
+def _target_schema() -> vol.Schema:
     """Schema selecting the thermostat, filtered on the VTherm integration."""
     return vol.Schema(
         {
@@ -92,30 +89,24 @@ def _target_schema(exclude: list[str] | None = None) -> vol.Schema:
                 selector.EntitySelectorConfig(
                     domain=CLIMATE_DOMAIN,
                     integration=VT_DOMAIN,
-                    exclude_entities=exclude or [],
                 )
             )
         }
     )
 
 
-def _exclusion_schema() -> vol.Schema:
-    """Schema of the exclusion branch: only the thermostat, no parameter."""
-    return _target_schema()
-
-
 def _global_defaults(hass) -> dict[str, Any]:
     """Return the global entry values, completed by the plugin defaults."""
     defaults = default_config()
     for entry in hass.config_entries.async_entries(DOMAIN):
-        config = dict(entry.options or entry.data)
+        config = entry_config(entry)
         if not config.get(CONF_VTHERM_UNIQUE_ID):
             defaults.update({key: config[key] for key in defaults if key in config})
     return defaults
 
 
 class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Configure the global defaults, a thermostat or an exclusion."""
+    """Configure the global defaults or one thermostat."""
 
     VERSION = 1
 
@@ -123,7 +114,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
         super().__init__()
         self._target_entity_id = ""
         self._target_unique_id = ""
-        self._exclude = False
 
     def is_matching(self, other_flow: ConfigFlow) -> bool:
         """Return whether another flow targets the same entry.
@@ -138,26 +128,12 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Route to the global branch when no entry exists, else ask the intent."""
+        """Create global defaults first, then configure thermostats directly."""
         if not self._async_current_entries():
             await self.async_set_unique_id(DOMAIN)
             self._abort_if_unique_id_configured()
             return await self.async_step_global(user_input)
-        return await self.async_step_menu(user_input)
-
-    async def async_step_menu(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Let the user choose a thermostat entry or an exclusion.
-
-        ``user_input`` is unused: a menu step only renders the choices, and the
-        selected option starts the matching step.
-        """
-        del user_input
-        return self.async_show_menu(
-            step_id="menu",
-            menu_options=["thermostat", "exclusion"],
-        )
+        return await self.async_step_thermostat(user_input)
 
     # -- global branch ------------------------------------------------------
 
@@ -192,7 +168,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
                 else:
                     self._target_entity_id = entity_id
                     self._target_unique_id = registry_entry.unique_id
-                    self._exclude = False
                     await self.async_set_unique_id(f"{DOMAIN}-{self._target_unique_id}")
                     self._abort_if_unique_id_configured()
                     return await self.async_step_thermostat_options()
@@ -210,7 +185,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             data = dict(user_input)
             data[CONF_VTHERM_UNIQUE_ID] = self._target_unique_id
-            data.pop(CONF_EXCLUDED, None)
             return self.async_create_entry(title=self._target_title(), data=data)
 
         defaults = _global_defaults(self.hass)
@@ -229,41 +203,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="thermostat_options", data_schema=_options_schema(defaults)
-        )
-
-    # -- exclusion branch ---------------------------------------------------
-
-    async def async_step_exclusion(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Create an exclusion entry for a thermostat."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            entity_id = user_input[CONF_TARGET_ENTITY]
-            registry_entry = er.async_get(self.hass).async_get(entity_id)
-            if registry_entry is None:
-                errors[CONF_TARGET_ENTITY] = ERROR_INVALID_ENTITY
-            else:
-                error = self._eligibility_error(entity_id)
-                if error is not None:
-                    errors[CONF_TARGET_ENTITY] = error
-                else:
-                    self._target_entity_id = entity_id
-                    self._target_unique_id = registry_entry.unique_id
-                    await self.async_set_unique_id(f"{DOMAIN}-{self._target_unique_id}")
-                    self._abort_if_unique_id_configured()
-                    return self.async_create_entry(
-                        title=f"{self._target_title()} (excluded)",
-                        data={
-                            CONF_VTHERM_UNIQUE_ID: self._target_unique_id,
-                            CONF_EXCLUDED: True,
-                        },
-                    )
-
-        return self.async_show_form(
-            step_id="exclusion",
-            data_schema=_exclusion_schema(),
-            errors=errors,
         )
 
     # -- helpers ------------------------------------------------------------
@@ -341,11 +280,8 @@ class AutoStartStopOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Edit the values of the entry; an exclusion has none."""
-        current = dict(self._config_entry.options or self._config_entry.data)
-
-        if current.get(CONF_EXCLUDED):
-            return self.async_abort(reason="exclusion_not_configurable")
+        """Edit the global or dedicated settings."""
+        current = entry_config(self._config_entry)
 
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
