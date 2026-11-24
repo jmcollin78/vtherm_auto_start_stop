@@ -8,7 +8,7 @@ Defines the auto-start/stop plugin: how its configuration is layered from a glob
 
 ### Requirement: Layered configuration resolution
 
-The plugin SHALL resolve the effective configuration of a thermostat as defaults, then the global instance if one exists, then the thermostat's dedicated instance if one exists. A layer SHALL only override the values it defines.
+The plugin SHALL apply the global configuration to every eligible thermostat without a dedicated override. Resolution SHALL use plugin defaults, then the global instance if present, then the dedicated instance if present. A layer SHALL only override the values it defines, including an explicit false enable state.
 
 #### Scenario: Only defaults exist
 
@@ -17,13 +17,28 @@ The plugin SHALL resolve the effective configuration of a thermostat as defaults
 
 #### Scenario: Global instance applies
 
-- **WHEN** a global instance exists and the thermostat has no dedicated instance
+- **WHEN** a global instance exists and an eligible thermostat has no dedicated instance
 - **THEN** the thermostat uses the global instance values over the plugin defaults
 
 #### Scenario: Dedicated instance wins
 
 - **WHEN** a thermostat has a dedicated instance and a global instance exists
 - **THEN** the thermostat uses the dedicated instance values for the fields it defines and the global values for the others
+
+#### Scenario: Dedicated instance works without a global instance
+
+- **WHEN** an eligible thermostat has a dedicated instance and no global instance exists
+- **THEN** the thermostat uses its dedicated values over the plugin defaults
+
+#### Scenario: Removing a dedicated instance restores the global configuration
+
+- **WHEN** a dedicated instance is removed and a global instance exists
+- **THEN** the thermostat uses the global configuration, including its enable state, on the next load
+
+#### Scenario: Removing the global instance leaves no implicit configuration
+
+- **WHEN** the global instance is removed and an eligible thermostat has no dedicated instance
+- **THEN** the plugin attaches no manager to that thermostat on the next load
 
 ### Requirement: Thermostat eligibility
 
@@ -54,48 +69,62 @@ The plugin SHALL only attach to a thermostat that is `over_climate` **and** not 
 - **WHEN** a thermostat is `over_climate`, is not valve-regulated, and has an effective configuration
 - **THEN** the plugin attaches one manager to it
 
-### Requirement: Per-thermostat exclusion from the global configuration
+#### Scenario: Global defaults never include valve-regulated thermostats
 
-The plugin SHALL let a thermostat opt out of a global instance without defining any parameter for it. An excluded thermostat SHALL be treated exactly as a thermostat for which the feature was never enabled in the core: no manager is attached, no detection runs, and no attribute section is published.
+- **WHEN** a global instance exists and an `over_climate` thermostat is valve-regulated
+- **THEN** the plugin attaches no manager to that thermostat, regardless of the global enable state
 
-#### Scenario: A thermostat opted out of the global instance gets nothing
+### Requirement: Per-thermostat enable override
 
-- **WHEN** a thermostat has an exclusion entry and a global instance exists
-- **THEN** the plugin attaches no manager to it and detects nothing for it
+The plugin SHALL let a dedicated instance override the global enable state in either direction. A disabled effective configuration SHALL retain its manager and attributes, and any dedicated entities SHALL remain available. While disabled, detection SHALL not accumulate error or request an automatic stop.
 
-#### Scenario: Other thermostats are unaffected by an exclusion
+#### Scenario: A dedicated instance disables a globally enabled feature
 
-- **WHEN** one thermostat has an exclusion entry and other eligible thermostats have none
-- **THEN** the other thermostats keep using the global instance normally
+- **WHEN** the global instance is enabled and a thermostat's dedicated instance is disabled
+- **THEN** auto-start/stop is disabled for that thermostat while other eligible thermostats without a dedicated override remain enabled
 
-#### Scenario: An exclusion is not a level
+#### Scenario: A dedicated instance enables a globally disabled feature
 
-- **WHEN** a thermostat is excluded
-- **THEN** its effective configuration is absent rather than set to a neutral level, so it is indistinguishable from a thermostat the feature was never enabled for
+- **WHEN** the global instance is disabled and a thermostat's dedicated instance is enabled
+- **THEN** auto-start/stop is enabled for that thermostat while other eligible thermostats without a dedicated override remain disabled
 
-#### Scenario: Removing the exclusion restores the global configuration
+#### Scenario: A globally disabled thermostat remains configured
 
-- **WHEN** an exclusion entry is removed for a thermostat that is otherwise eligible
-- **THEN** the global instance applies to it again on the next load
+- **WHEN** the global instance is disabled and an eligible thermostat has no dedicated instance
+- **THEN** its manager remains attached, the configured flag is true, and its auto-start/stop attributes report an enable state of false
+- **AND** its accumulated error stays unchanged and no automatic stop is requested
 
-### Requirement: Behavioural parity with the core opt-out
+#### Scenario: A disabled dedicated instance retains its controls
 
-A thermostat that opts out of the plugin SHALL be indistinguishable at the interface level from a thermostat that never had the core feature enabled.
+- **WHEN** a thermostat has a disabled dedicated instance
+- **THEN** its manager, auto-start/stop attribute section, enable switch and stop-mode selector remain present
+- **AND** its configured flag is true, its enable state is false, and detection does not accumulate error or request an automatic stop
 
-#### Scenario: No auto-start/stop entity exists for an opted-out thermostat
+#### Scenario: Disabling releases a detected stop
 
-- **WHEN** a thermostat is excluded
-- **THEN** no enable switch and no stop-mode selector are created for it
+- **WHEN** the effective enable state becomes false while an automatic stop is detected
+- **THEN** the detection flag becomes false and the auto-start/stop stop request is released
+- **AND** the thermostat resumes its requested operation subject to its other controls
 
-#### Scenario: No auto-start/stop attribute section is published
+### Requirement: Direct dedicated configuration flow
 
-- **WHEN** a thermostat is excluded and the thermostat exposes its custom attributes
-- **THEN** the `auto_start_stop_manager` section is absent and the configured flag reports false, exactly as when the core feature is disabled
+When no plugin entry exists, the config flow SHALL create the global defaults. Otherwise, adding an entry SHALL open the thermostat selector directly, followed by dedicated settings. Both global and dedicated settings SHALL expose an enable control. No exclusion entry type or configure-or-exclude menu SHALL be available.
 
-#### Scenario: The arbitration ignores an opted-out thermostat
+#### Scenario: The first entry configures global defaults
 
-- **WHEN** the state arbitration evaluates an excluded thermostat
-- **THEN** it finds no detected stop, so the thermostat keeps its requested mode and no auto-start/stop off-reason is set
+- **WHEN** a user adds the integration and no plugin entry exists
+- **THEN** the flow opens the global settings, including the enable control
+
+#### Scenario: Adding a dedicated instance opens the thermostat selector directly
+
+- **WHEN** a user adds another plugin entry
+- **THEN** the flow opens the thermostat selector without an intent menu or exclusion choice
+- **AND** after an eligible thermostat is selected, the flow opens its dedicated settings, including the enable control
+
+#### Scenario: A dedicated instance can be edited in either direction
+
+- **WHEN** a user changes the enable control in an existing dedicated instance
+- **THEN** the saved value overrides the global enable state for that thermostat without requiring another entry type
 
 ### Requirement: Detection and stop request
 

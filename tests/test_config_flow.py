@@ -73,7 +73,9 @@ class MockModule:
         return True
 
 
-def register_thermostat(hass: HomeAssistant, thermostat_type="thermostat_over_climate"):
+def register_thermostat(
+    hass: HomeAssistant, thermostat_type="over_climate", has_valve=False
+):
     """Register a thermostat entity and its registry entry."""
     from homeassistant.helpers import entity_registry as er
 
@@ -89,7 +91,10 @@ def register_thermostat(hass: HomeAssistant, thermostat_type="thermostat_over_cl
         "heat",
         {
             "friendly_name": "Thermostat",
-            "configuration": {"type": thermostat_type, "have_valve_regulation": False},
+            "configuration": {
+                "type": thermostat_type,
+                "have_valve_regulation": has_valve,
+            },
         },
     )
 
@@ -140,13 +145,14 @@ async def test_menu_offers_a_thermostat_and_an_exclusion(hass):
     assert set(result["menu_options"]) == {"thermostat", "exclusion"}
 
 
-async def test_dedicated_entry_stores_the_thermostat_unique_id(hass):
+@pytest.mark.parametrize("thermostat_type", ["over_climate", "thermostat_over_climate"])
+async def test_dedicated_entry_stores_the_thermostat_unique_id(hass, thermostat_type):
     """Task 2.3: the entry stores the thermostat unique id, not the entity id."""
     MockConfigEntry(
         domain=DOMAIN,
         data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
     ).add_to_hass(hass)
-    register_thermostat(hass)
+    register_thermostat(hass, thermostat_type=thermostat_type)
 
     result = await start_flow(hass)
     result = await hass.config_entries.flow.async_configure(
@@ -173,13 +179,27 @@ async def test_dedicated_entry_stores_the_thermostat_unique_id(hass):
     assert CONF_EXCLUDED not in result["data"]
 
 
-async def test_ineligible_thermostat_reports_its_reason(hass):
+@pytest.mark.parametrize(
+    ("thermostat_type", "has_valve", "error"),
+    [
+        ("over_switch", False, "not_over_climate"),
+        ("thermostat_over_switch", False, "not_over_climate"),
+        ("over_valve", False, "not_over_climate"),
+        ("over_climate_valve", True, "not_over_climate"),
+        ("thermostat_central_config", False, "not_over_climate"),
+        ("over_climate", True, "valve_regulation"),
+        ("thermostat_over_climate", True, "valve_regulation"),
+    ],
+)
+async def test_ineligible_thermostat_reports_its_reason(
+    hass, thermostat_type, has_valve, error
+):
     """Task 2.4: the error names the reason."""
     MockConfigEntry(
         domain=DOMAIN,
         data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
     ).add_to_hass(hass)
-    register_thermostat(hass, thermostat_type="thermostat_over_switch")
+    register_thermostat(hass, thermostat_type=thermostat_type, has_valve=has_valve)
 
     result = await start_flow(hass)
     result = await hass.config_entries.flow.async_configure(
@@ -190,7 +210,7 @@ async def test_ineligible_thermostat_reports_its_reason(hass):
     )
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "thermostat"
-    assert result["errors"] == {CONF_TARGET_ENTITY: "not_over_climate"}
+    assert result["errors"] == {CONF_TARGET_ENTITY: error}
 
 
 async def test_exclusion_entry_carries_no_parameter(hass):
@@ -249,7 +269,7 @@ def register_core_entry(hass: HomeAssistant, level: str) -> MockConfigEntry:
         {
             "friendly_name": "Thermostat",
             "configuration": {
-                "type": "thermostat_over_climate",
+                "type": "over_climate",
                 "have_valve_regulation": False,
             },
         },
@@ -268,6 +288,42 @@ async def reach_thermostat_options(hass: HomeAssistant):
     return await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
     )
+
+
+@pytest.mark.parametrize(
+    ("thermostat_type", "regulation_mode", "error"),
+    [
+        ("thermostat_over_climate", None, None),
+        ("thermostat_over_climate", "auto_regulation_valve", "valve_regulation"),
+        ("thermostat_over_switch", None, "not_over_climate"),
+    ],
+)
+async def test_eligibility_uses_core_entry_when_state_is_missing(
+    hass, thermostat_type, regulation_mode, error
+):
+    """The stored thermostat type is still used before state publication."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_SLOW, CONF_STOP_MODE: STOP_MODE_DRY},
+    ).add_to_hass(hass)
+    core_entry = register_core_entry(hass, LEVEL_FAST)
+    hass.config_entries.async_update_entry(
+        core_entry,
+        data={
+            "thermostat_type": thermostat_type,
+            "auto_regulation_mode": regulation_mode,
+        },
+    )
+    hass.states.async_remove(THERMOSTAT_ENTITY)
+
+    result = await reach_thermostat_options(hass)
+
+    assert result["type"] == FlowResultType.FORM
+    if error is None:
+        assert result["step_id"] == "thermostat_options"
+    else:
+        assert result["step_id"] == "thermostat"
+        assert result["errors"] == {CONF_TARGET_ENTITY: error}
 
 
 async def test_legacy_level_seeds_the_dedicated_instance(hass):

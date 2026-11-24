@@ -292,7 +292,11 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
             "have_valve_regulation", False
         )
 
-        if thermostat_type is not None and thermostat_type != THERMOSTAT_TYPE_CLIMATE:
+        # Published types omit the "thermostat_" prefix used in config entries.
+        if thermostat_type is not None and thermostat_type not in (
+            "over_climate",
+            THERMOSTAT_TYPE_CLIMATE,
+        ):
             return ERROR_NOT_OVER_CLIMATE
         if has_valve:
             return ERROR_VALVE_REGULATION

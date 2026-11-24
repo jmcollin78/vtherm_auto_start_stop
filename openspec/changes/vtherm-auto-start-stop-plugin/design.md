@@ -14,6 +14,7 @@ Reference implementations exist in the organization: `vtherm_heating_failure_det
 
 - Behavioral parity with the core feature for phase 1.
 - A configuration model that removes the level from the thermostat entry.
+- One global configuration and optional dedicated overrides, using the same enable control to activate or deactivate the feature.
 - Eligibility enforced before the user validates and again at every load.
 - Exact attribute and off-reason compatibility.
 - A single place to extend parameters in phase 2.
@@ -38,7 +39,9 @@ Consequence: the name must not collide with the legacy manager's name. It does n
 
 `unique_id` is the domain alone for the global instance, and `DOMAIN-<vtherm_unique_id>` for a dedicated instance. This mirrors `vtherm_heating_failure_detection` and keeps a single integration with two entry shapes rather than two integrations.
 
-Resolution is a cascade: plugin defaults, then the global entry fields, then the dedicated entry fields. The cascade is implemented once, in `models.py`, and every consumer reads the result, so the order cannot diverge between the manager and the entities.
+Resolution is a cascade: plugin defaults, then the global entry fields, then the dedicated entry fields. This includes `enabled`: an explicit `false` overrides a global `true`, and a dedicated `true` overrides a global `false`. Only missing fields inherit from the preceding layer; false is never treated as missing. The cascade is implemented once, in `models.py`, and every consumer reads the result, so the order cannot diverge between the manager and the entities.
+
+The global instance covers every eligible thermostat without a dedicated override. Removing a dedicated instance restores the global values on the next load, including the enable state. A dedicated instance can also operate without a global instance, inheriting missing fields from plugin defaults. Plugin defaults alone do not constitute an effective configuration.
 
 ### D3 — Identity by `vtherm_unique_id`, not entity id
 
@@ -57,23 +60,23 @@ It is evaluated in two places, deliberately:
 
 Rationale for keeping the valve exclusion rather than widening it: widening is technically safe (a stop at `off` closes the valve via `thermostat_climate_valve.py:356`), but it would be a functional extension, not a port. Keeping the predicate identical makes the later deletion of the core feature a pure removal with no behaviour change for any user, which is the whole point of the migration.
 
-### D5 — Opt-out is an exclusion entry, not a neutral level
+### D5 — Disabled is a configured state, not an exclusion
 
-A thermostat opts out of the global instance by means of an **exclusion entry**: a dedicated entry with no parameter whose only effect is to mark the thermostat as not covered.
+There are only two entry shapes: global and dedicated. A thermostat disables the feature through `enabled: false`, either inherited from the global entry or set on its dedicated entry. The separate exclusion entry shape and `excluded` flag are removed.
 
-Rationale: the core offers opt-out by simply not enabling the feature, and the parity requirement is that an opted-out thermostat look like a thermostat the feature was never enabled for. A neutral level would not achieve that: the core distinguishes "not configured" from "configured at level none" (`_is_configured` is separate from the level, and `add_custom_attributes` publishes the section only `if self.is_configured`). Resolving an exclusion to *no effective configuration* reproduces the exact same observable state: no manager, no attribute section, nothing in the arbitration.
+An effective configuration remains non-null when disabled. After the eligibility check, `factory.supports()` tests for the existence of that configuration, not its enable state. The manager remains configured, publishes its attributes with `auto_start_stop_enable: false`, stops accumulating error and releases any detected stop. Dedicated entities remain available so the user can re-enable the same configuration. A frozen accumulated error need not be reset to zero.
 
-Alternative considered and rejected: a boolean `enabled` field on the dedicated entry, as `vtherm_heating_failure_detection` does. Rejected because "enabled: false" still yields an effective configuration, hence a manager and an attribute section, which is precisely what parity forbids.
+Rationale: one enable control expresses the two user operations symmetrically: disable one thermostat when global defaults are enabled, or enable one thermostat when global defaults are disabled. Configuration presence and detection activity are distinct states.
 
-Alternative considered and rejected: relying on the enable switch. Rejected because the switch only exists when a dedicated instance exists, so it cannot serve a thermostat configured through the global instance — the case that raises the question. It would also publish the attribute section with a disabled flag, which differs from "never enabled".
+Alternative rejected: retaining an exclusion entry that resolves to no configuration. Although it removes the manager and attribute section, this adds a second way to disable the feature and a confusing extra UI branch. Exact interface parity with a core feature that was never configured is no longer a requirement for a disabled plugin configuration.
 
-### D6 — Exclusions take precedence over every layer
+### D6 — Dedicated configuration starts directly with thermostat selection
 
-The resolution order becomes: exclusion, then plugin defaults, then global instance, then dedicated instance — where the exclusion short-circuits to "no configuration".
+With no existing plugin entry, the user flow creates the global instance. Otherwise, it opens the thermostat selector directly, checks eligibility, and opens the dedicated settings. Both global and dedicated settings expose `enabled` alongside the level and stop mode.
 
-Rationale: an exclusion that a deeper layer could override would be meaningless once a global instance exists. Short-circuiting also keeps `factory.supports()` a single predicate, `effective_config(...) is not None`, identical to the reference plugin's shape.
+The configure-or-exclude menu, exclusion step, exclusion-only options abort and associated translations are removed. Options editing uses the same settings for every dedicated entry. Existing unique ids and the one-global/one-dedicated-per-thermostat constraints remain unchanged.
 
-Trade-off: a thermostat cannot be excluded and configured at the same time, which is intentional — the user either configures it or opts out.
+Rationale: after the initial global configuration there is only one entry type to add, so an intent menu has no purpose. The UI follows the configuration model instead of introducing a separate opt-out concept.
 
 ### D7 — `has_valve_regulation` is an eligibility fact, not a stop-mode input
 
@@ -81,13 +84,13 @@ Since eligibility is kept identical to the core (D4), a valve-regulated thermost
 
 Consequence for the API contract: `has_valve_regulation` is consumed by `factory.supports()` as an eligibility gate, and `vtherm_hvac_modes` remains available to validate a configured stop mode on eligible thermostats. Neither is used to rewrite the configured mode.
 
-### D8 — Migration and exclusion are independent
+### D8 — Core migration is independent of the effective enable state
 
-The core-side migration clears the legacy flag for every thermostat that had it enabled, whether or not the plugin excludes that thermostat.
+The core-side migration clears the legacy flag for every thermostat that had it enabled, whether the plugin's effective configuration is enabled or disabled.
 
-Rationale: exclusion means "no auto-start/stop for this thermostat", so leaving the core feature enabled on it would contradict the user's choice. After migration, an excluded thermostat has the core flag cleared and no plugin manager — which is precisely the "feature never enabled" state D5 targets.
+Rationale: a disabled plugin configuration must not leave the core implementation running in its place. The plugin's configured manager can remain present but inactive; the legacy core flag remains cleared.
 
-Consequence: excluding a thermostat that previously used the core feature is a deliberate removal of the feature for it, not a neutral toggle. The config flow states this when the exclusion is created.
+Creating a dedicated instance still seeds its level from the legacy core value when available. It inherits the global enable state unless the user changes it. Existing dedicated instances are not overwritten from legacy core values.
 
 ### D9 — Runtime clock only
 
@@ -119,6 +122,8 @@ The enable switch and the stop-mode selector are created only when a dedicated e
 
 Rationale: an entity needs a stable owner, and an entity belongs to a config entry. A thermostat configured only through the **global instance** has no per-thermostat entry to own an entity, so its configuration is edited from the config flow instead.
 
+The dedicated entry owns these entities even when its effective enable state is false. Registry lookup and platform setup no longer filter an exclusion flag. Disabling does not remove entities; deleting the dedicated instance does, and returns configuration resolution to the global instance if present.
+
 Trade-off: such a thermostat cannot be toggled from the dashboard. Accepted for phase 1; a shared switch is a candidate for phase 2.
 
 Terminology note: "global instance" is the single optional entry carrying installation-wide defaults (`unique_id` = domain). It has nothing to do with a Versatile Thermostat **central configuration** entry, which is not `over_climate` and is therefore ineligible.
@@ -127,8 +132,9 @@ Terminology note: "global instance" is the single optional entry carrying instal
 
 - **Divergence from the core algorithm over time**: the ported algorithm is a copy. Mitigated by keeping the copy minimal and by the fact that the core implementation is scheduled for deletion.
 - **Ineligible after reconfiguration**: the factory re-check drops the manager, so the feature stops silently. Mitigated by a log entry naming the reason.
-- **Exclusion mistaken for a level**: a user might expect to tune an excluded thermostat instead of configuring it. Mitigated by the exclusion entry being a distinct flow branch with no level field, and by documentation.
-- **Global instance deletion**: removing the global instance reverts every non-excluded thermostat without a dedicated instance to plugin defaults, which may mean "no configuration". Mitigated by resolving to defaults rather than to the previous global values, and by documenting the effect.
+- **Disabled mistaken for absent**: a disabled thermostat still exposes the attribute section and, for dedicated instances, controls. Mitigated by documenting the distinction and testing configured=true with enabled=false and no detection activity.
+- **Dedicated instance deletion**: deleting a locally disabled instance can re-enable the feature if global defaults are enabled. Mitigated by documenting the return to global values and testing both global enable states.
+- **Global instance deletion**: a thermostat without a dedicated instance has no effective configuration and loses its manager on the next load; a dedicated instance continues over plugin defaults. Mitigated by testing and documenting both cases rather than retaining stale global values.
 - **Two refresh paths**: if the core later changes how often it refreshes external managers, the transition-only refresh keeps behavior correct but may delay the effect by one cycle. Accepted.
 - **Dependency sequencing**: the plugin cannot be released before both prerequisite changes are published.
 
@@ -136,6 +142,7 @@ Terminology note: "global instance" is the single optional entry carrying instal
 
 1. Publish `thermostat-runtime-api` with the new members.
 2. Publish the core delegation change with migration and entity cleanup.
-3. Install the plugin; its first configuration reads the legacy level carried by the thermostat entry and seeds the dedicated instance.
+3. Install the plugin and configure global defaults. When creating a dedicated instance, read the legacy level carried by the thermostat entry and seed that instance.
 4. The core flag is already cleared by the delegation change, so no duplicate configuration or duplicate entity exists at any point.
-5. Phase 2 adds the `personnalise` mode inside `resolve_params`.
+5. For this configuration simplification, remove exclusion handling from the model, config flow, constants, registry, entity platforms, fixtures and translations. No exclusion entries have been created in the test installation, so no migration, compatibility reader or automatic conversion is required. Existing global and ordinary dedicated entries retain their identities and values.
+6. Phase 2 adds the `personnalise` mode inside `resolve_params`.

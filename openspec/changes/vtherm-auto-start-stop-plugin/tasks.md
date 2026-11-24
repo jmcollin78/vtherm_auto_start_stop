@@ -8,14 +8,17 @@
 
 ## 2. Configuration model
 
-- [x] 2.1 Implement `models.py` with plugin defaults, the global entry shape, the dedicated entry shape, the exclusion short-circuit and the defaults-to-global-to-dedicated cascade, and verify the cascade with a table-driven test over the three layers plus an excluded thermostat
+Tasks reopened below describe the approved simplification; their earlier exclusion-based implementation is not completion of the revised behavior. No exclusion entries exist in the test installation, so no migration or compatibility implementation is planned.
+
+- [ ] 2.1 Simplify `models.py` to global and dedicated entries only, removing the exclusion short-circuit while preserving the defaults-to-global-to-dedicated cascade; verify all four global/dedicated enable-state combinations, missing-field inheritance, a dedicated instance without a global instance, and no effective configuration when neither exists
 - [x] 2.2 Implement the config flow with the global branch (`unique_id` = domain), and verify a second global instance is refused
-- [x] 2.3 Implement the dedicated branch (`unique_id` = domain plus the thermostat unique id) with a thermostat selector filtered on the Versatile Thermostat integration, and verify the entry stores the thermostat unique id
+- [ ] 2.3 Route every addition after the first entry directly to the thermostat selector and then dedicated settings, without the intent menu; verify the first entry still configures global defaults, both settings forms expose enabled, duplicate dedicated entries are refused, and the dedicated entry stores the thermostat unique id rather than its entity id
 - [x] 2.4 Add the eligibility check producing explicit errors for a thermostat that is not `over_climate` and for a valve-regulated thermostat, and verify both error messages name their reason
-- [x] 2.5 Implement the exclusion branch: a dedicated entry with no parameter that resolves to no effective configuration, and verify `factory.supports()` returns false for an excluded thermostat
-- [x] 2.6 Verify an excluded thermostat publishes no auto-start/stop attribute section and exposes no entity, matching a thermostat that never had the core feature enabled
-- [x] 2.7 Verify other eligible thermostats keep using the global instance while one thermostat is excluded
-- [x] 2.8 Verify the exclusion short-circuits ahead of the three configuration layers, and that removing it restores the global instance on the next load
+- [ ] 2.5 Remove the exclusion flow, schema, flag, helpers, options abort and obsolete module descriptions, fixtures and tests; remove the configure-or-exclude menu and exclusion labels from strings and both translations, and verify obsolete identifiers and user-facing choices are absent without adding a migration or compatibility branch
+- [ ] 2.6 Verify disabled global and dedicated configurations remain effective configurations with an attached manager, configured=true and enabled=false attributes, frozen accumulated error, and no automatic stop; replace the former exclusion-detachment assertions with these regression tests
+- [ ] 2.7 Verify with multiple thermostats that a dedicated disabled configuration overrides global enabled defaults and a dedicated enabled configuration overrides global disabled defaults, that unrelated eligible thermostats keep following global changes, and that valve-regulated thermostats never receive a manager in either global state
+- [ ] 2.8 Verify deleting a dedicated instance restores the global values on the next load for both global enable states, and deleting the global instance leaves dedicated instances operational over plugin defaults while thermostats without a dedicated instance lose their configuration
+- [ ] 2.9 Update the user README with the direct configuration flow, the global/dedicated enable-state matrix, return to global values after deletion, disabled-but-configured attributes and the unchanged valve-regulation restriction; verify all examples match the configuration-flow and resolution tests
 
 ## 3. Algorithm port
 
@@ -33,7 +36,7 @@
 
 ## 5. Entities
 
-- [x] 5.1 Create the enable switch and the stop-mode selector only for thermostats with a dedicated entry, and verify a thermostat configured only through the global instance owns no entity
+- [ ] 5.1 Remove exclusion checks from the registry and switch/select platforms; verify every eligible dedicated instance owns an enable switch and a stop-mode selector even when disabled, can be re-enabled through the same controls, and a thermostat configured only through the global instance still owns no dedicated entity
 - [x] 5.2 Verify the switch turned off stops accumulation and releases an applied stop
 - [x] 5.3 Verify the selector changes the applied stop mode on the next detection
 
@@ -44,13 +47,13 @@
 
 ## 7. Integration verification
 
-- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity
+- [ ] 7.1 Verify end-to-end on a test instance with the delegated core: a thermostat configured before the plugin keeps its level, stops via the plugin, and exposes no core auto-start/stop entity; then verify the direct dedicated flow, global enabled/local disabled and global disabled/local enabled cases, and return to global values after removing the dedicated entry
   - This is the validation point of `core-auto-start-stop-delegation` task 5.3, which is blocked until this task runs. Report the outcome back there.
 - [x] 7.2 Verify a thermostat reconfigured into an ineligible state loses its manager on reload and the installation keeps running
-- [x] 7.3 Run the integration test suite and verify no test fails
+- [ ] 7.3 Re-run the integration test suite after the configuration simplification and verify no test fails, including the direct-flow, disabled-configuration, entity-lifecycle and unchanged eligibility regressions
 
 ## Workflow follow-up
 
 - Release only after the API and core delegation releases are published.
-- Write a user-oriented README (installation, global/dedicated configuration, per-thermostat exclusion, migration from the core) before releasing.
+- Complete the user-oriented README with installation and migration-from-core guidance before releasing; task 2.9 covers the revised global/dedicated configuration model.
 - Archive the change after end-to-end validation on a test instance.
