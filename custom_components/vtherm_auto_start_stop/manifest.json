@@ -13,7 +13,7 @@
     "iot_class": "calculated",
     "issue_tracker": "https://github.com/jmcollin78/vtherm_auto_start_stop/issues",
     "requirements": [
-        "vtherm_api>=0.13.0"
+        "vtherm_api>=0.13.1"
     ],
     "version": "0.1.0"
 }
