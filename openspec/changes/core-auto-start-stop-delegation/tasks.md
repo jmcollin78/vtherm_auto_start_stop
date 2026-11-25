@@ -33,8 +33,8 @@
 
 - [x] 5.1 Raise the `vtherm_api` minimum constraint in `manifest.json` to `0.13.0`, and verify the integration loads with the pinned version installed
 - [x] 5.2 Run the full integration test suite and verify no existing auto-start/stop test regresses
-- [ ] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level and historical entity IDs preserved, core-owned entities removed, dedicated plugin controls using the same IDs, and the external manager driving the stop decision
-  - **Blocked**: requires the plugin to exist. This cannot be executed before `vtherm-auto-start-stop-plugin` task 7.1 is implemented. The core side is ready and unit-tested; only the cross-integration check is deferred.
+- [x] 5.3 Verify end-to-end on a test instance: install the plugin, confirm the flag is cleared, the level and historical entity IDs preserved, core-owned entities removed, dedicated plugin controls using the same IDs, and the external manager driving the stop decision
+  - Verified on a production delegated instance on 2026-11-25 (see `vtherm-auto-start-stop-plugin` task 7.1): flag cleared, historical entity IDs preserved, core-owned entities removed, dedicated plugin controls active and driving the stop decision
 
 ## Workflow follow-up
 
