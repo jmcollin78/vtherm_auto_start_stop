@@ -71,15 +71,21 @@ class ControlState:
 
 
 def control_state(hass: HomeAssistant, unique_id: str) -> ControlState:
-    return _domain_data(hass).setdefault(DATA_CONTROLS, {}).setdefault(
-        unique_id, ControlState()
+    return (
+        _domain_data(hass)
+        .setdefault(DATA_CONTROLS, {})
+        .setdefault(unique_id, ControlState())
     )
 
 
 async def async_apply_controls(hass: HomeAssistant, unique_id: str) -> None:
     state = control_state(hass, unique_id)
     manager = get_manager(hass, unique_id)
-    if manager is not None and state.enabled is not None and state.stop_mode is not None:
+    if (
+        manager is not None
+        and state.enabled is not None
+        and state.stop_mode is not None
+    ):
         await manager.async_initialize_controls(state.enabled, state.stop_mode)
 
 
@@ -139,14 +145,18 @@ def covered_thermostats(hass: HomeAssistant) -> set[str]:
             registry = er.async_get(hass)
             climates = [
                 entity
-                for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+                for entity in er.async_entries_for_config_entry(
+                    registry, entry.entry_id
+                )
                 if entity.platform == VT_DOMAIN and entity.domain == "climate"
             ]
             result.add(
                 climates[0].unique_id if climates else entry.unique_id or entry.entry_id
             )
     result.difference_update(_domain_data(hass).get(DATA_INELIGIBLE, set()))
-    return {unique_id for unique_id in result if entity_owner(hass, unique_id) is not None}
+    return {
+        unique_id for unique_id in result if entity_owner(hass, unique_id) is not None
+    }
 
 
 def _core_entry(hass: HomeAssistant, unique_id: str) -> ConfigEntry | None:
@@ -177,9 +187,7 @@ _PLUGIN_SUFFIXES = {
 }
 
 
-def _historical_ids(
-    hass: HomeAssistant, core: ConfigEntry | None
-) -> dict[str, str]:
+def _historical_ids(hass: HomeAssistant, core: ConfigEntry | None) -> dict[str, str]:
     if core is None:
         return {}
     saved = core.data.get(LEGACY_ENTITY_IDS, {})
@@ -192,9 +200,7 @@ def _historical_ids(
         raise ConfigEntryError(f"Invalid {LEGACY_ENTITY_IDS} for {core.title}")
     result = dict(saved)
     registry = er.async_get(hass)
-    for entity in chain(
-        registry.entities.values(), registry.deleted_entities.values()
-    ):
+    for entity in chain(registry.entities.values(), registry.deleted_entities.values()):
         suffix = _CORE_SUFFIXES.get(entity.domain)
         if (
             entity.platform == VT_DOMAIN
@@ -206,9 +212,7 @@ def _historical_ids(
     return result
 
 
-def prepare_entity_ids(
-    hass: HomeAssistant, entry: ConfigEntry, unique_id: str
-) -> bool:
+def prepare_entity_ids(hass: HomeAssistant, entry: ConfigEntry, unique_id: str) -> bool:
     """Adopt exact historical IDs, or wait for legitimate core cleanup.
 
     Validate the whole pair before changing either registry entry. Never take
@@ -229,10 +233,15 @@ def prepare_entity_ids(
             if own is not None and own.config_entry_id is not None
             else None
         )
-        if own is not None and own.config_entry_id != entry.entry_id and (
-            old_owner is None
-            or old_owner.domain != DOMAIN
-            or entry_config(old_owner).get(CONF_VTHERM_UNIQUE_ID) not in (None, unique_id)
+        if (
+            own is not None
+            and own.config_entry_id != entry.entry_id
+            and (
+                old_owner is None
+                or old_owner.domain != DOMAIN
+                or entry_config(old_owner).get(CONF_VTHERM_UNIQUE_ID)
+                not in (None, unique_id)
+            )
         ):
             raise ConfigEntryError(
                 translation_domain=DOMAIN,
@@ -264,7 +273,11 @@ def prepare_entity_ids(
                 translation_key="entity_id_conflict",
                 translation_placeholders={"entity_id": target},
             )
-        if target is not None and occupied is None and hass.states.get(target) is not None:
+        if (
+            target is not None
+            and occupied is None
+            and hass.states.get(target) is not None
+        ):
             raise ConfigEntryError(
                 translation_domain=DOMAIN,
                 translation_key="entity_id_conflict",
@@ -354,7 +367,9 @@ async def async_remove_controls(
     if remove_registry:
         registry = er.async_get(hass)
         for domain, suffix in _PLUGIN_SUFFIXES.items():
-            entity_id = registry.async_get_entity_id(domain, DOMAIN, f"{unique_id}_{suffix}")
+            entity_id = registry.async_get_entity_id(
+                domain, DOMAIN, f"{unique_id}_{suffix}"
+            )
             if entity_id is not None:
                 registry.async_remove(entity_id)
         data.get(DATA_CONTROLS, {}).pop(unique_id, None)
@@ -371,7 +386,9 @@ async def async_reconcile_entities(
             manager = get_manager(hass, unique_id)
             if manager is not None:
                 manager.stop_listening()
-            await async_remove_controls(hass, unique_id, remove_registry=remove_registry)
+            await async_remove_controls(
+                hass, unique_id, remove_registry=remove_registry
+            )
         elif owner is not None and owner.entry_id != owner_id:
             await async_remove_controls(hass, unique_id)
             prepare_entity_ids(hass, owner, unique_id)

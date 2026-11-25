@@ -114,7 +114,9 @@ class AutoStartStopEntity(RestoreEntity):
     def available(self) -> bool:
         """An entity is available only while its manager is attached."""
         manager = self.manager
-        return manager is not None and manager.controls_ready and self._value is not None
+        return (
+            manager is not None and manager.controls_ready and self._value is not None
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore once, then attach the independent state to the live manager."""
@@ -124,12 +126,15 @@ class AutoStartStopEntity(RestoreEntity):
             prepare_entity_ids(self.hass, owner, self._vtherm_unique_id)
         state = control_state(self.hass, self._vtherm_unique_id)
         cached = state.enabled if self._control_key == CONF_ENABLED else state.stop_mode
-        value = cached if self._valid_value(cached) else await self._async_restore_value()
+        value = (
+            cached if self._valid_value(cached) else await self._async_restore_value()
+        )
         if self._control_key == CONF_STOP_MODE and self.manager is not None:
             if value not in self.manager.stop_modes:
                 _LOGGER.warning(
                     "%s: restored stop mode %s is unsupported; using off",
-                    self.entity_id, value,
+                    self.entity_id,
+                    value,
                 )
                 value = STOP_MODE_OFF
         self._value = value
@@ -187,7 +192,8 @@ class AutoStartStopEntity(RestoreEntity):
             if value not in ("unknown", "unavailable"):
                 _LOGGER.warning(
                     "%s: cannot restore %s; using initialization default",
-                    self.entity_id, value,
+                    self.entity_id,
+                    value,
                 )
                 if self._control_key == CONF_STOP_MODE:
                     return STOP_MODE_OFF

@@ -57,7 +57,9 @@ async def selection(hass, monkeypatch):
 
 @pytest.fixture
 def enable_switch(selection, hass, monkeypatch):
-    from custom_components.vtherm_auto_start_stop.switch import AutoStartStopEnableSwitch
+    from custom_components.vtherm_auto_start_stop.switch import (
+        AutoStartStopEnableSwitch,
+    )
 
     entry, thermostat, _, _ = selection
     entity = AutoStartStopEnableSwitch(hass, entry, thermostat.unique_id)

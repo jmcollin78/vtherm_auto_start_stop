@@ -101,10 +101,14 @@ def test_entities_wait_for_both_platform_callbacks(fake_hass, captured):
         make_entry({CONF_VTHERM_UNIQUE_ID: VT}, entry_id="ded")
     )
     fake_hass.data[DOMAIN][DATA_ENTRIES]["ded"] = {CONF_VTHERM_UNIQUE_ID: VT}
-    register_callback(fake_hass, PLATFORM_SWITCH, "ded", captured[PLATFORM_SWITCH].extend)
+    register_callback(
+        fake_hass, PLATFORM_SWITCH, "ded", captured[PLATFORM_SWITCH].extend
+    )
     ensure_entities(fake_hass, VT)
     assert all(entities == [] for entities in captured.values())
-    register_callback(fake_hass, PLATFORM_SELECT, "ded", captured[PLATFORM_SELECT].extend)
+    register_callback(
+        fake_hass, PLATFORM_SELECT, "ded", captured[PLATFORM_SELECT].extend
+    )
     ensure_entities(fake_hass, VT)
     assert all(len(entities) == 1 for entities in captured.values())
 

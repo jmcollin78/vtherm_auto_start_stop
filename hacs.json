@@ -2,5 +2,8 @@
     "name": "VTherm Auto Start/Stop",
     "content_in_root": false,
     "render_readme": true,
-    "homeassistant": "2026.10.0"
+    "hide_default_branch": false,
+    "filename": "vtherm_auto_start_stop.zip",
+    "zip_release": true,
+    "homeassistant": "2026.11.0"
 }
