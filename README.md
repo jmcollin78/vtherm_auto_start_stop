@@ -1,156 +1,193 @@
-# vtherm_auto_start_stop
-A plugin for Versatile Thermostat aiming to start and stop automatically your climate device
+# VTherm Auto Start/Stop
 
-## Installation
+**[English](README.md) · [Français](README-fr.md)** · [Contributors (EN)](CONTRIBUTING.md) · [Contributeurs (FR)](CONTRIBUTING-fr.md)
 
-Use Home Assistant 2026.10 or later and a Versatile Thermostat version that
-supports external auto-start/stop delegation. The plugin declares
-`vtherm_api>=0.13.1` as a Python dependency.
+A plugin for [Versatile Thermostat](https://github.com/jmcollin78/versatile_thermostat)
+that automatically stops your climate device once the room has reached its target
+temperature, and lets Versatile Thermostat resume it normally when the temperature
+drifts away again.
 
-Install this repository as a custom integration through HACS, or copy
-`custom_components/vtherm_auto_start_stop` into Home Assistant's
-`config/custom_components` directory. Restart Home Assistant, then add
-**VTherm Auto Start/Stop** from **Settings > Devices & services**.
+## What is it for?
+
+Your climate device (heat pump, heater, cooling system…) keeps running until the
+Versatile Thermostat logic decides otherwise — even when the room is already at the
+setpoint. This plugin watches the temperature and **stops the device when it has
+arrived**, then lets Versatile Thermostat bring it back up normally when the room
+drifts from the target again.
+
+- **Saves energy** — every automatic stop avoids useless minutes of compressor or
+  boiler work.
+- **Fully automatic** — no button to press: the plugin requests the stop itself.
+- **You stay in control** — each thermostat gets an *Enable auto start/stop* switch
+  and a *Stop mode* select, right in the dashboard. The unchanged VTherm UI card
+  operates them exactly as before.
+- **One global configuration** covers all of your thermostats; per-thermostat
+  parameter overrides are optional and never needed merely to enable a room.
+- **The home of a migrated core feature** — the auto start/stop that used to live
+  inside Versatile Thermostat has been extracted into this standalone plugin.
+  Existing installations migrate automatically: controls, dashboards and entity
+  IDs are preserved.
+
+## How does the detection work? (in plain words)
+
+Every ~2 minutes the plugin takes a measurement and asks one question:
+**"How far is the room from the target, and for how long has it stayed there?"**
+
+1. **The deviation** — the current temperature is compared to the target. If the
+   room is still 2 °C below the target, the deviation is 2 °C.
+2. **The score** — since the last measurement, that deviation is multiplied by the
+   elapsed time and added to a running **score** (the *accumulated error*). A
+   deviation that persists builds up the score; one that disappears does not
+   grow it.
+3. **The verdict** — the device is asked to stop when the score exceeds a
+   **threshold** *and* the temperature, projected with its current trend
+   (plus a 0.5 °C safety margin), has already crossed the target.
+4. **Releasing the stop** — when the error changes sign (the room starts moving
+   the other way), the score is halved rather than reset, so a short wobble does
+   not restart the whole detection.
+5. **Your commands win** — changing the preset or the target temperature resets
+   the score immediately: you explicitly asked for something new, so a leftover
+   detection can never hold the previous decision.
+
+How fast a stop is detected is set by the **level**: a level fixes the
+**minimum duration** (`dt_min`, how long the deviation must persist before any
+verdict) and the **score threshold** it must cross.
+
+| Level          | `dt_min` (minutes) | Score threshold | Character          |
+| -------------- | ------------------ | --------------- | ------------------ |
+| Very slow      | 60                 | 20              | Stops rarely, late |
+| Slow (default) | 30                 | 10              | Balanced           |
+| Medium         | 15                 | 5               | Moderate           |
+| Fast           | 7                  | 2               | Stops quickly      |
+| Custom         | 5 → 120            | 1 → 50          | You choose both    |
+
+The default level is **Slow (30 / 10)**, the behaviour the core feature had.
+
+> With the **Custom** level you set both values yourself: a minimum duration
+> between **5 and 120 minutes** and a threshold between **1 and 50** (step 0.5).
+> The two fields are always shown in the configuration form, whatever the
+> current level. They are only applied when the level is *Custom* — with a named
+> level the static table is used instead — and the values are saved in the entry
+> so you do not have to re-enter them when you switch back to *Custom*.
 
 ## Supported thermostats
 
-Only `over_climate` thermostats without valve regulation are supported.
-This restriction applies both to global defaults and dedicated configurations:
-valve-regulated thermostats cannot use this plugin.
+- Only **`over_climate`** thermostats (a Versatile Thermostat driving a
+  climate device) are eligible.
+- **Valve-regulated thermostats are not supported** — the same restriction the
+  core feature had, kept on purpose so the migration is a pure handover.
 
-The configuration flow accepts the published `configuration.type` value
-`over_climate` as well as the stored type `thermostat_over_climate`.
-When state attributes are not yet available, eligibility is checked against the
-thermostat's core configuration entry.
+## Installation
 
-## Global defaults and dedicated configurations
+**Prerequisites**
 
-1. The first entry configures the shared **detection level**, plus initial
-   enable and stop-mode defaults. Every eligible thermostat receives its own
-   switch and select, even if the initialization default is disabled.
-2. Use each thermostat's switch and select, including through the unchanged
-   VTherm UI Card, to change its activation and stop mode independently. These
-   states survive reloads and restarts through Home Assistant entity restoration.
-   Actions never create a configuration entry or modify global defaults.
-3. Optional dedicated entries change **detection parameters only**. Add another
-   entry, select the thermostat, then choose its level. No dedicated entry is
-   needed merely to enable a thermostat or remember its stop mode.
+- Home Assistant **2026.10** or later.
+- A Versatile Thermostat version with **external auto start/stop delegation**
+  support. The plugin, the core and the `vtherm_api` package are released as a
+  coordinated triple (the manifest pins `vtherm_api >= 0.13.1`).
 
-Initialization defaults apply only when an entity has no saved state. Editing
-them later does not reset any existing entity, even one never manually changed.
-Detection-level edits still propagate to thermostats inheriting that parameter.
+**Option A — HACS**
 
-For example, leave initial activation disabled, then enable only Chambre using
-its switch or the card. Salon stays disabled, and both choices survive restart
-with just the single global configuration.
+1. In HACS, add this repository as a custom integration (via the *Marketplace* or
+   a manual download of the repository).
+2. Restart Home Assistant.
+3. Go to **Settings → Devices & services** and add **VTherm Auto Start/Stop**.
 
-The dedicated form starts from the global level, except that an available legacy
-core level seeds its level. Dedicated parameters override global parameters;
-missing parameters inherit global values, then plugin defaults. Without global
-coverage, a dedicated entry still supplies its thermostat's two controls.
+**Option B — Manual**
 
-## Detection levels
+1. Copy the `custom_components/vtherm_auto_start_stop` folder into your
+   Home Assistant `config/custom_components/` directory.
+2. Restart Home Assistant.
+3. Go to **Settings → Devices & services** and add **VTherm Auto Start/Stop**.
 
-The plugin detects an automatic stop after an accumulated deviation exceeds the
-`error_threshold`, for at least `dt_min` minutes. The named levels fix both
-values:
+## Configuration
 
-| Level     | `dt_min` | `error_threshold` |
-| --------- | -------- | ----------------- |
-| Very slow | 60       | 20                |
-| Slow      | 30       | 10                |
-| Medium    | 15       | 5                 |
-| Fast      | 7        | 2                 |
+### The global configuration (the only mandatory one)
 
-The **Custom** level lets you set both values per thermostat:
+The first time you add the integration, you configure the **global settings**:
 
-- `dt_min` in minutes, between **5** and **120**.
-- `error_threshold` in °C, between **1** and **50** (step 0.5).
+- **Level** — the detection level applied to every thermostat (table above).
+- **Initial enable** and **initial stop mode** — defaults used **only** while a
+  thermostat's controls have no saved state yet (a brand-new thermostat). Once a
+  control has a saved state, editing these defaults never resets it, even if you
+  never touched it by hand.
 
-Both fields are **always visible** in the configuration form — whether the level
-is named or Custom. They are pre-filled from the current entry, or from the
-Slow values (30 / 10) when the entry does not yet carry custom values.
+Every eligible thermostat automatically receives its own pair of controls:
 
-- When the level is **Custom**, the submitted values are applied.
-- When the level is a named one, the algorithm ignores them and uses the static
-  table for that level; the values are still persisted in the entry so the user
-  does not have to re-enter them on a later switch back to Custom.
-- Out-of-bounds values are rejected by the form.
+- **Enable auto start/stop** (switch) — turns detection on or off for that
+  thermostat only, without touching its saved stop mode.
+- **Stop mode** (select) — which HVAC mode to apply when the plugin requests a
+  stop:
 
-The previous **None** level was removed: it duplicated the Slow behavior, and
-any stored legacy value now resolves to Slow (30 / 10).
+| Option    | Behaviour on an automatic stop     | Availability |
+| --------- | ---------------------------------- | ------------ |
+| Off `off` | The device is switched off         | Always       |
+| Fan only  | The device switches to ventilation | If supported |
+| Dry       | The device switches to dehumidify  | If supported |
 
-## Disabled does not mean unconfigured
+> **`Off` is a stop mode, not a way to disable the feature.** Disabling or
+> enabling detection is the switch's only job; choosing `Off` only says *how*
+> the device is stopped. Selecting a stop mode never enables or disables
+> detection.
 
-A disabled configuration keeps its manager and its `auto_start_stop_manager`
-attributes. It reports `is_auto_start_stop_configured: true` and
-`auto_start_stop_enable: false`, does not accumulate error, and requests no
-automatic stop. A previously accumulated error can remain visible, frozen at its
-last value. Disabling releases a detected stop, subject to the thermostat's other
-controls.
+All of these states survive reloads and restarts. Changing a control never
+creates a configuration entry and never modifies the global settings.
 
-Every covered eligible thermostat has exactly two production-compatible controls:
+### Per-thermostat parameters (optional dedicated entries)
 
-- An **Enable auto start/stop** switch, which enables or disables detection
-  without changing the saved stop mode.
-- An independent **Auto start/stop stop mode** select:
+If one thermostat needs different **detection parameters** — say a slow room
+that should not stop quickly — add another configuration entry:
 
-| Option (service value) | Behavior                                 |
-| ---------------------- | ---------------------------------------- |
-| Off (`off`)            | Use HVAC `off` for automatic stops       |
-| Fan only (`fan_only`)  | Use ventilation for automatic stops      |
-| Dry (`dry`)            | Use dehumidification for automatic stops |
+1. Add **VTherm Auto Start/Stop** again from *Devices & services*.
+2. Select the thermostat.
+3. Choose its level (and its Custom values, if needed).
 
-`fan_only` and `dry` are offered only when supported by the thermostat. `heat`,
-`cool` and `auto` are not stop modes. **Off does not disable auto start/stop.**
-Selecting a stop mode never enables or disables detection. Use `switch.turn_on`
-or `switch.turn_off` to change activation.
+Dedicated entries change **parameters only**: activation and stop mode always
+stay on the entity controls (no dedicated entry is ever needed for those).
+Parameters you do not set in the dedicated entry inherit from the global entry,
+then from the plugin defaults.
 
-Both controls remain present when detection is disabled. A saved stop mode is
-restored before activation; detection waits until both states are initialized.
-An unsupported restored mode is logged and safely reconciled to `off` without
-enabling the feature.
+### Removing entries
 
-## Preserving existing controls and dashboards
+- Removing a **dedicated** entry restores parameter inheritance; the
+  thermostat's controls, activation and stop mode are untouched.
+- Removing the **global** entry removes the controls of every thermostat that
+  has no dedicated entry of its own; thermostats that do keep working, with
+  missing parameters falling back to the plugin defaults.
 
-Install the coordinated compatible core and plugin versions, then restart Home
-Assistant. Before removing its old controls, the core saves their exact entity
-IDs. The plugin reuses those IDs under global-only or dedicated coverage,
-including custom user names, without changing the card or dashboard configuration.
-Adding a dedicated parameter entry later does not replace the controls. Legitimate core
-controls must finish unloading before the plugin creates their replacements.
+## Migrating from the core feature
 
-Existing plugin controls are reused rather than deleted. Later user renames are
-preserved. An unrelated entity occupying a historical ID causes an explicit
-configuration error: the plugin never takes it over or silently creates an `_2`
-replacement. Resolve the conflict, then reload the owning plugin configuration.
+If your thermostats already used the built-in auto start/stop:
 
-Upgrading from the experimental combined selector restores the switch and removes
-the select's `disabled` option. Saved activation and stop mode are unchanged:
-a disabled thermostat with `dry` saved stays disabled and retains `dry`. Older
-configuration-backed individual choices migrate once; later entity actions take
-precedence over those legacy fields. Automations
-written specifically for that experimental option must use the switch instead.
-Already-delegated test installations can recover old core IDs from retained
-registry deletion history. A custom historical ID cannot be reconstructed if
-neither that history nor the core's saved metadata remains available.
+- With the coordinated core and plugin versions installed, a reload hands the
+  feature over to the plugin: the core clears its legacy feature flag, removes
+  the old switch and select, and the plugin recreates the controls **under their
+  exact previous entity IDs** — dashboards, cards and automations keep working
+  unchanged.
+- When you create a dedicated entry, its level is **seeded from the legacy core
+  level** when available; an existing dedicated entry is never overwritten.
+- Removing the plugin does **not** silently re-enable the old core feature —
+  re-enable it through Versatile Thermostat if you want it back.
 
-## Removing entries
+## Frequently asked questions
 
-- Adding or removing a dedicated parameter entry preserves existing control IDs,
-  activation and mode while changing only parameter inheritance.
-- Removing the global entry leaves thermostats without dedicated entries
-  unconfigured and removes their plugin controls. Dedicated entries retain their
-  controls, IDs and saved states, using plugin defaults for missing parameters.
-- With neither a global nor a dedicated entry, no plugin manager is attached.
+**I disabled the feature on a thermostat — why do the controls and attributes
+still show up?**
+Disabling is a saved state, not an uninstall: the thermostat keeps its (frozen)
+accumulated score, its stop mode and both controls, so re-enabling is immediate.
+While disabled, detection does not accumulate and requests no stop.
 
-## Migration from the core feature
+**Can I enable the feature for only one thermostat?**
+Yes — configure the global settings with *initial enable* off, then flip the
+switch only on the thermostat(s) you want. No extra configuration entry is
+created.
 
-The compatible Versatile Thermostat core delegates auto-start/stop to the plugin
-and clears the legacy core feature flag. This also applies when the plugin
-configuration is disabled, so the core feature does not run in its place.
+**My valve-regulated thermostat is not offered in the selector.**
+That is intentional: valve-regulated `over_climate` thermostats stay excluded,
+exactly as with the core feature.
 
-When creating a dedicated entry, its level is seeded from the legacy thermostat
-configuration if available. An existing dedicated entry is not overwritten.
-Activation and stop mode remain controlled by its entities. Removing the plugin does not
-automatically re-enable the old core feature.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) / [CONTRIBUTING-fr.md](CONTRIBUTING-fr.md)
+for the design, the mandatory OpenSpec workflow and the interactions with the
+Versatile Thermostat core.
