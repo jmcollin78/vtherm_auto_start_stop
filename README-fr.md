@@ -1,8 +1,16 @@
-<p align="left">
+<p align="center">
   <img src="custom_components/vtherm_auto_start_stop/brand/icon.png" alt="VTherm Auto Start/Stop" width="256" height="256">
 </p>
 
-# VTherm Auto Start/Stop
+<p align="center">
+  [![GitHub Release][releases-shield]][releases]
+  [![GitHub Activity][commits-shield]][commits]
+  [![License][license-shield]](LICENSE)
+  [![HACS][hacs_badge]][hacs]
+  [![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
+</p>
+
+# 🌡️ VTherm Auto Start/Stop
 
 **[Français](README-fr.md) · [English](README.md)** · [Contributeurs (FR)](CONTRIBUTING-fr.md) · [Contributors (EN)](CONTRIBUTING.md)
 
@@ -212,3 +220,13 @@ le core Versatile Thermostat.
 
 > **Note :** Ce plugin remplace la fonction équivalente d'auto start/stop du
 > core Versatile Thermostat, qui sera **totalement supprimée en 2027**.
+
+[commits]: https://github.com/jmcollin78/vtherm_auto_start_stop/commits/main
+[commits-shield]: https://img.shields.io/github/commit-activity/m/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[releases]: https://github.com/jmcollin78/vtherm_auto_start_stop/releases
+[releases-shield]: https://img.shields.io/github/release/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[license-shield]: https://img.shields.io/github/license/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[hacs]: https://hacs.xyz/
+[hacs_badge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=flat-square
+[buymecoffee]: https://www.buymeacoffee.com/jmcollin78
+[buymecoffeebadge]: https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black
