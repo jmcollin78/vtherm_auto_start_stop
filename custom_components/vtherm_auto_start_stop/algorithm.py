@@ -22,13 +22,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
+    CONF_ERROR_THRESHOLD,
+    CONF_DT_MIN,
+    DEFAULT_ERROR_THRESHOLD,
+    DEFAULT_DT_MIN,
+    DEFAULT_LEVEL,
     LEVEL_FAST,
     LEVEL_MEDIUM,
-    LEVEL_NONE,
+    LEVEL_PERSONNALISE,
     LEVEL_SLOW,
     LEVEL_VERY_SLOW,
 )
@@ -46,7 +52,6 @@ TEMP_HYSTERESIS = 0.5
 
 #: Minimum duration in minutes, per level.
 DT_MIN: dict[str, float] = {
-    LEVEL_NONE: 0,
     LEVEL_VERY_SLOW: 60,
     LEVEL_SLOW: 30,
     LEVEL_MEDIUM: 15,
@@ -55,7 +60,6 @@ DT_MIN: dict[str, float] = {
 
 #: Accumulated error threshold, per level.
 ERROR_THRESHOLD: dict[str, float] = {
-    LEVEL_NONE: 0,
     LEVEL_VERY_SLOW: 20,
     LEVEL_SLOW: 10,
     LEVEL_MEDIUM: 5,
@@ -76,15 +80,45 @@ class LevelParams:
     """Accumulated-error magnitude that triggers a decision."""
 
 
-def resolve_params(level: str) -> LevelParams:
+def _clamp_custom_key(
+    config: dict[str, Any] | None, key: str, fallback: float
+) -> float:
+    """Read a custom parameter from ``config``, clamped to a sane range.
+
+    Absent, non-numeric or out-of-range values fall back to the SLOW-derived
+    default rather than failing the refresh: a bad value must never break the
+    control cycle. ``dt_min`` is the minimum duration (minutes); the threshold
+    is always a magnitude.
+    """
+    raw = config.get(key) if config else None
+    if raw is None:
+        return fallback
+    try:
+        result = float(raw)
+    except (TypeError, ValueError):
+        return fallback
+    if result != result or result in (float("inf"), float("-inf")):
+        return fallback
+    return result
+
+
+def resolve_params(level: str, config: dict[str, Any] | None = None) -> LevelParams:
     """Return the parameters of a level.
 
-    An unknown level (a stale or future value) resolves to the default
+    ``personnalise`` reads the per-instance custom values from ``config`` and
+    clamps them; a missing or invalid value falls back to the SLOW-derived
+    default. An unknown level (a stale or future value) resolves to the default
     parameters rather than failing the refresh: a configuration must never break
     the control cycle of the thermostat.
     """
     if level in DT_MIN:
         return LevelParams(DT_MIN[level], ERROR_THRESHOLD[level])
+    if level == LEVEL_PERSONNALISE:
+        dt_min = _clamp_custom_key(config, CONF_DT_MIN, DEFAULT_DT_MIN)
+        threshold = _clamp_custom_key(
+            config, CONF_ERROR_THRESHOLD, DEFAULT_ERROR_THRESHOLD
+        )
+        return LevelParams(dt_min, threshold)
     _LOGGER.debug(
         "Auto start/stop: unknown level '%s', falling back to the default", level
     )
@@ -96,23 +130,33 @@ class AutoStartStopDetectionAlgorithm:
 
     def __init__(self, level: str, vtherm_name: str) -> None:
         self._vtherm_name = vtherm_name
-        self._level = LEVEL_NONE
-        self._params = resolve_params(LEVEL_SLOW)
+        self._level = DEFAULT_LEVEL
+        self._params = resolve_params(DEFAULT_LEVEL)
         self._accumulated_error = 0.0
         self._last_calculation_date: datetime | None = None
         self._last_switch_date: datetime | None = None
         self._last_should_be_off = False
-        self.set_level(level)
+        self.set_params(level, None)
 
     # -- configuration ------------------------------------------------------
 
-    def set_level(self, level: str) -> None:
-        """Set a new level, resetting the accumulation when it changes."""
-        if level == self._level:
+    def set_params(self, level: str, config: dict[str, Any] | None) -> None:
+        """Set the level and its parameters, resetting the accumulation on change.
+
+        ``config`` carries the detection parameters; only ``personnalise`` reads
+        it (the custom ``dt_min`` and threshold). When the level or the resolved
+        parameters change the accumulation restarts from zero.
+        """
+        params = resolve_params(level, config)
+        if level == self._level and params == self._params:
             return
         self._level = level
-        self._params = resolve_params(level)
+        self._params = params
         self._accumulated_error = 0.0
+
+    def set_level(self, level: str) -> None:
+        """Set a new level, resetting the accumulation when it changes."""
+        self.set_params(level, None)
 
     def reset_switch_delay(self) -> None:
         """Allow an immediate start/stop after a deliberate user change.
@@ -141,10 +185,6 @@ class AutoStartStopDetectionAlgorithm:
         feature override. ``slope_min`` is the temperature slope in °C per
         minute, used to project the temperature ``dt_min`` ahead.
         """
-        if self._level == LEVEL_NONE:
-            self._last_should_be_off = False
-            return self._last_should_be_off
-
         mode = None if requested_hvac_mode is None else str(requested_hvac_mode)
 
         if mode is None or target_temp is None or current_temp is None:

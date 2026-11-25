@@ -7,6 +7,8 @@
         "description": "Paramètres de détection partagés par tous les thermostats éligibles. L'activation et le mode d'arrêt initialisent uniquement les entités sans état mémorisé ; modifier ces valeurs ne réinitialise pas les entités existantes.",
         "data": {
           "auto_start_stop_level": "Niveau",
+          "auto_start_stop_dtmin": "Durée minimum (minutes)",
+          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée",
           "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
           "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
@@ -22,7 +24,9 @@
         "title": "Paramètres du thermostat",
         "description": "Ces paramètres de détection remplacent les valeurs globales pour ce thermostat sans modifier son activation ni son mode d'arrêt mémorisés.",
         "data": {
-          "auto_start_stop_level": "Niveau"
+          "auto_start_stop_level": "Niveau",
+          "auto_start_stop_dtmin": "Durée minimum (minutes)",
+          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée"
         }
       }
     },
@@ -42,6 +46,8 @@
         "description": "Les paramètres de détection dédiés sont prioritaires sur les valeurs globales. Les valeurs initiales d'activation et de mode, lorsqu'elles sont affichées, concernent uniquement les nouvelles entités et ne réinitialisent jamais les états mémorisés.",
         "data": {
           "auto_start_stop_level": "Niveau",
+          "auto_start_stop_dtmin": "Durée minimum (minutes)",
+          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée",
           "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
           "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
@@ -51,11 +57,11 @@
   "selector": {
     "auto_start_stop_level": {
       "options": {
-        "auto_start_stop_none": "Aucun",
         "auto_start_stop_very_slow": "Très lent",
         "auto_start_stop_slow": "Lent",
         "auto_start_stop_medium": "Moyen",
-        "auto_start_stop_fast": "Rapide"
+        "auto_start_stop_fast": "Rapide",
+        "auto_start_stop_personnalise": "Personnalisé"
       }
     },
     "auto_start_stop_stop_mode": {

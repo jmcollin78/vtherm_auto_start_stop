@@ -9,13 +9,16 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vtherm_auto_start_stop.const import (
     CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
     CONF_LEVEL,
+    CONF_DT_MIN,
     CONF_STOP_MODE,
     CONF_TARGET_ENTITY,
     CONF_VTHERM_UNIQUE_ID,
     DOMAIN,
     LEVEL_FAST,
     LEVEL_MEDIUM,
+    LEVEL_PERSONNALISE,
     LEVEL_SLOW,
     STOP_MODE_DRY,
 )
@@ -148,9 +151,7 @@ async def test_additional_entry_opens_the_thermostat_selector(hass):
 
 
 @pytest.mark.parametrize("thermostat_type", ["over_climate", "thermostat_over_climate"])
-async def test_dedicated_entry_stores_the_thermostat_unique_id(
-    hass, thermostat_type
-):
+async def test_dedicated_entry_stores_the_thermostat_unique_id(hass, thermostat_type):
     """Task 2.3: the entry stores the thermostat unique id, not the entity id."""
     MockConfigEntry(
         domain=DOMAIN,
@@ -385,3 +386,138 @@ async def test_an_existing_dedicated_instance_is_not_overwritten(hass):
     result = await reach_thermostat_options(hass)
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+# ---------------------------------------------------------------------------
+# Custom parameters (personnalise level)
+# ---------------------------------------------------------------------------
+
+
+async def test_prefill_seeds_custom_values_from_the_previous_level(hass):
+    """Switching to personnalise after 'slow' seeds dt_min=30, threshold=10."""
+    global_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_LEVEL: LEVEL_SLOW,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+    )
+    global_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(global_entry.entry_id)
+    assert result["step_id"] == "init"
+    # The form was rendered at the slow level: only the common fields are shown.
+    assert CONF_DT_MIN not in set(result["data_schema"].schema)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+    )
+    await hass.async_block_till_done()
+
+    config = entry_config(global_entry)
+    assert config[CONF_LEVEL] == LEVEL_PERSONNALISE
+    assert config[CONF_DT_MIN] == 30
+    assert config[CONF_ERROR_THRESHOLD] == 10
+
+
+async def test_custom_keys_persist_through_a_level_round_trip(hass):
+    """The custom keys stay in the entry options after personnalise→medium→personnalise."""
+    global_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25,
+        },
+    )
+    global_entry.add_to_hass(hass)
+
+    # personnalise → medium: the custom fields are not shown, so they are not
+    # resubmitted and drop out of the options.
+    result = await hass.config_entries.options.async_init(global_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_LEVEL: LEVEL_MEDIUM, CONF_STOP_MODE: STOP_MODE_DRY, CONF_ENABLED: True},
+    )
+    await hass.async_block_till_done()
+
+    # medium → personnalise: the custom fields come back, re-seeded from the
+    # previous (medium) level, so both keys are present again in the options.
+    result = await hass.config_entries.options.async_init(global_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+        },
+    )
+    await hass.async_block_till_done()
+
+    config = entry_config(global_entry)
+    assert config[CONF_LEVEL] == LEVEL_PERSONNALISE
+    assert config[CONF_DT_MIN] == 15  # re-seeded from medium
+    assert config[CONF_ERROR_THRESHOLD] == 5
+    assert CONF_DT_MIN in global_entry.options
+    assert CONF_ERROR_THRESHOLD in global_entry.options
+
+
+@pytest.mark.parametrize(
+    ("dt_min", "error_threshold", "in_range"),
+    [
+        (3, 0.5, False),  # below the lower bounds → rejected
+        (200, 60, False),  # above the upper bounds → rejected
+        (45, 25.0, True),  # within bounds → kept
+    ],
+)
+async def test_custom_values_checked_against_the_selector_bounds(
+    hass, dt_min, error_threshold, in_range
+):
+    """dt_min/error_threshold are enforced to [5,120] and [1,50].
+
+    The NumberSelector schema rejects out-of-bounds values; in-range values
+    are accepted and preserved.
+    """
+    from homeassistant.data_entry_flow import InvalidData
+
+    global_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25.0,
+        },
+    )
+    global_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(global_entry.entry_id)
+    payload = {
+        CONF_LEVEL: LEVEL_PERSONNALISE,
+        CONF_STOP_MODE: STOP_MODE_DRY,
+        CONF_ENABLED: True,
+        CONF_DT_MIN: dt_min,
+        CONF_ERROR_THRESHOLD: error_threshold,
+    }
+    if not in_range:
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], payload
+            )
+        return
+
+    await hass.config_entries.options.async_configure(result["flow_id"], payload)
+    await hass.async_block_till_done()
+
+    config = entry_config(global_entry)
+    assert config[CONF_LEVEL] == LEVEL_PERSONNALISE
+    assert config[CONF_DT_MIN] == dt_min
+    assert config[CONF_ERROR_THRESHOLD] == error_threshold

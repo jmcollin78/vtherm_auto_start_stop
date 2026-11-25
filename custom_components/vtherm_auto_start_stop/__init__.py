@@ -30,7 +30,7 @@ from .factory import (
     register_factory,
     unregister_factory,
 )
-from .models import PARAMETER_KEYS, entry_config
+from .models import PARAMETER_KEYS, PARAMETER_OVERLAYS, entry_config
 from .registry import (
     async_reconcile_entities,
     covered_thermostats,
@@ -131,7 +131,7 @@ async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None
     _entries(hass)[entry.entry_id] = current
     if all(
         previous.get(key) == current.get(key)
-        for key in (*PARAMETER_KEYS, CONF_VTHERM_UNIQUE_ID)
+        for key in (*PARAMETER_OVERLAYS, CONF_VTHERM_UNIQUE_ID)
     ):
         return
     await _reload_thermostats(hass, entry)

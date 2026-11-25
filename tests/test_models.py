@@ -6,12 +6,15 @@ import pytest
 
 from custom_components.vtherm_auto_start_stop.const import (
     CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
     CONF_LEVEL,
+    CONF_DT_MIN,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
     LEVEL_FAST,
     LEVEL_MEDIUM,
-    LEVEL_NONE,
+    LEVEL_PERSONNALISE,
+    LEVEL_SLOW,
     STOP_MODE_DRY,
     STOP_MODE_FAN_ONLY,
 )
@@ -98,7 +101,8 @@ def test_dedicated_layer_inherits_undefined_keys(enabled):
     assert config[CONF_LEVEL] == LEVEL_FAST
     assert config == {CONF_LEVEL: LEVEL_FAST}
     assert initial_control_defaults(entries) == {
-        CONF_STOP_MODE: STOP_MODE_FAN_ONLY, CONF_ENABLED: enabled
+        CONF_STOP_MODE: STOP_MODE_FAN_ONLY,
+        CONF_ENABLED: enabled,
     }
 
 
@@ -123,7 +127,8 @@ def test_dedicated_configuration_works_without_global(enabled):
     assert config is not None
     assert config == {CONF_LEVEL: LEVEL_FAST}
     assert initial_control_defaults(entries) == {
-        CONF_ENABLED: default_config()[CONF_ENABLED], CONF_STOP_MODE: "off"
+        CONF_ENABLED: default_config()[CONF_ENABLED],
+        CONF_STOP_MODE: "off",
     }
     assert effective_config(entries, VT_B) is None
 
@@ -155,18 +160,37 @@ def test_removing_global_keeps_only_dedicated_configuration():
     assert effective_config(entries, VT_B) is None
 
 
-@pytest.mark.parametrize(
-    "entries",
-    [{}, {"global": global_entry()}, {"other": {CONF_VTHERM_UNIQUE_ID: VT_B}}],
-)
-def test_has_no_dedicated_instance(entries):
-    assert has_dedicated_instance(entries, VT_A) is False
+def test_custom_parameters_cascade_like_other_parameters():
+    """Custom values flow through the same global/dedicated cascade."""
+    # Global carries the custom pair at personnalise.
+    global_custom = {**global_entry(level=LEVEL_PERSONNALISE), CONF_DT_MIN: 60}
+    # Dedicated carries a narrower minimum duration: it must win.
+    dedicated = {
+        CONF_VTHERM_UNIQUE_ID: VT_A,
+        CONF_LEVEL: LEVEL_PERSONNALISE,
+        CONF_DT_MIN: 20,
+        CONF_ERROR_THRESHOLD: 25,
+    }
+    config = effective_config({"global": global_custom, "ded": dedicated}, VT_A)
+    assert config[CONF_DT_MIN] == 20
+    assert config[CONF_ERROR_THRESHOLD] == 25
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_has_dedicated_instance_even_when_disabled(enabled):
-    entries = {"ded": dedicated_entry(enabled=enabled)}
-    assert has_dedicated_instance(entries, VT_A) is True
+def test_dedicated_inherits_missing_custom_key_from_global():
+    global_custom = {**global_entry(level=LEVEL_PERSONNALISE), CONF_DT_MIN: 60}
+    dedicated = {
+        CONF_VTHERM_UNIQUE_ID: VT_A,
+        CONF_LEVEL: LEVEL_PERSONNALISE,
+        # No CONF_DT_MIN: it inherits the global value.
+    }
+    config = effective_config({"global": global_custom, "ded": dedicated}, VT_A)
+    assert config[CONF_DT_MIN] == 60
+
+
+def test_custom_keys_flow_only_when_present():
+    """Layers without custom values leave the base dict untouched."""
+    entries = {"global": global_entry(level=LEVEL_FAST), "ded": dedicated_entry()}
+    assert effective_config(entries, VT_A) == {CONF_LEVEL: LEVEL_FAST}
 
 
 @pytest.mark.parametrize(
@@ -174,8 +198,10 @@ def test_has_dedicated_instance_even_when_disabled(enabled):
     [
         (LEVEL_FAST, LEVEL_FAST),
         (LEVEL_MEDIUM, LEVEL_MEDIUM),
-        ("auto_start_stop_personnalise", default_config()[CONF_LEVEL]),
-        (None, default_config()[CONF_LEVEL]),
+        (LEVEL_PERSONNALISE, LEVEL_PERSONNALISE),
+        ("auto_start_stop_none", LEVEL_SLOW),
+        ("unknown", LEVEL_SLOW),
+        (None, LEVEL_SLOW),
     ],
 )
 def test_normalize_level(level, expected):
@@ -200,7 +226,7 @@ def test_normalize_stop_mode_default():
 def test_legacy_level_reads_the_core_entry():
     """The migrated level seeds a new dedicated instance (task 6.1)."""
     assert legacy_level({CONF_LEVEL: LEVEL_FAST}) == LEVEL_FAST
-    assert legacy_level({CONF_LEVEL: LEVEL_NONE}) == LEVEL_NONE
+    assert legacy_level({CONF_LEVEL: "auto_start_stop_none"}) is None
 
 
 def test_legacy_level_ignores_unknown_and_missing():

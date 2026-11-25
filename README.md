@@ -49,6 +49,32 @@ core level seeds its level. Dedicated parameters override global parameters;
 missing parameters inherit global values, then plugin defaults. Without global
 coverage, a dedicated entry still supplies its thermostat's two controls.
 
+## Detection levels
+
+The plugin detects an automatic stop after an accumulated deviation exceeds the
+`error_threshold`, for at least `dt_min` minutes. The named levels fix both
+values:
+
+| Level     | `dt_min` | `error_threshold` |
+| --------- | -------- | ----------------- |
+| Very slow | 60       | 20                |
+| Slow      | 30       | 10                |
+| Medium    | 15       | 5                 |
+| Fast      | 7        | 2                 |
+
+The **Custom** level lets you set both values per thermostat:
+
+- `dt_min` in minutes, between **5** and **120**.
+- `error_threshold` in °C, between **1** and **50** (step 0.5).
+
+Out-of-bounds values are rejected by the form. When you switch to the Custom
+level, both fields are pre-filled from the previously selected level, or from
+the Slow values when that level has none. Values you did not change are kept
+when you switch away and back again.
+
+The previous **None** level was removed: it duplicated the Slow behavior, and
+any stored legacy value now resolves to Slow (30 / 10).
+
 ## Disabled does not mean unconfigured
 
 A disabled configuration keeps its manager and its `auto_start_stop_manager`
@@ -64,11 +90,11 @@ Every covered eligible thermostat has exactly two production-compatible controls
   without changing the saved stop mode.
 - An independent **Auto start/stop stop mode** select:
 
-| Option (service value) | Behavior |
-|---|---|
-| Off (`off`) | Use HVAC `off` for automatic stops |
-| Fan only (`fan_only`) | Use ventilation for automatic stops |
-| Dry (`dry`) | Use dehumidification for automatic stops |
+| Option (service value) | Behavior                                 |
+| ---------------------- | ---------------------------------------- |
+| Off (`off`)            | Use HVAC `off` for automatic stops       |
+| Fan only (`fan_only`)  | Use ventilation for automatic stops      |
+| Dry (`dry`)            | Use dehumidification for automatic stops |
 
 `fan_only` and `dry` are offered only when supported by the thermostat. `heat`,
 `cool` and `auto` are not stop modes. **Off does not disable auto start/stop.**

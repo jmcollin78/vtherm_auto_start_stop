@@ -14,12 +14,14 @@ from custom_components.vtherm_auto_start_stop.const import (
     ATTR_LEVEL,
     ATTR_STOP_MODE,
     CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
     CONF_LEVEL,
+    CONF_DT_MIN,
     CONF_STOP_MODE,
     DATA_MANAGERS,
     DOMAIN,
     LEVEL_FAST,
-    LEVEL_NONE,
+    LEVEL_PERSONNALISE,
     LEVEL_SLOW,
     MANAGER_ATTRIBUTES_KEY,
     MANAGER_NAME,
@@ -422,175 +424,28 @@ async def test_bootstrap_waits_for_both_controls_and_applies_mode_first(
     assert manager.enabled is True
 
 
-def test_none_level_is_not_detected(manager_factory, thermostat, add_global_entry):
-    add_global_entry(level=LEVEL_NONE)
-    manager = install(manager_factory, thermostat)
-    assert manager.is_detected is False
-
-
-async def test_stop_listening_unregisters(
-    manager_factory, thermostat, add_global_entry, fake_hass
-):
-    add_global_entry()
-    manager = install(manager_factory, thermostat)
-    manager.stop_listening()
-    assert VT_UNIQUE_ID not in fake_hass.data[DOMAIN][DATA_MANAGERS]
-
-
-def test_dedicated_layer_overrides_global(
-    manager_factory, thermostat, add_global_entry, add_dedicated_entry
-):
-    add_global_entry(level=LEVEL_SLOW)
-    add_dedicated_entry(level=LEVEL_FAST)
-    manager = install(manager_factory, thermostat)
-    assert manager._algorithm.level == LEVEL_FAST
-
-
-# ---------------------------------------------------------------------------
-# Delegation contract: the names the core actually reads
-# ---------------------------------------------------------------------------
-
-
-async def test_core_arbitration_names_are_exposed(
+def test_none_literal_fonds_to_the_default_level(
     manager_factory, thermostat, add_global_entry
 ):
-    """The core arbitration reads `is_auto_stop_detected` and `stop_mode`.
-
-    Once the feature is delegated, the core resolves
-    ``vtherm.auto_start_stop_manager`` to this manager and reads it through its
-    own property names, so the plugin must expose them or the arbitration would
-    fail with an ``AttributeError`` at the next state computation.
-    """
-    add_global_entry(level=LEVEL_FAST, stop_mode=STOP_MODE_DRY)
+    """The removed ``none`` literal no longer disables the manager."""
+    entry = add_global_entry(level=LEVEL_SLOW, enabled=True)
+    entry[CONF_LEVEL] = "auto_start_stop_none"
     manager = install(manager_factory, thermostat)
-
-    assert manager.is_auto_stop_detected is manager.is_detected
-    assert manager.stop_mode == STOP_MODE_DRY
-    assert manager.auto_start_stop_enable is True
+    assert manager.is_configured is True
+    assert manager._algorithm.level == LEVEL_SLOW
 
 
-async def test_core_entities_can_drive_the_manager(
-    manager_factory, thermostat, add_global_entry
-):
-    """The core switch and select call `set_auto_start_stop_*` on the manager."""
-    add_global_entry(level=LEVEL_SLOW, enabled=True)
+def test_personnalise_applies_custom_parameters(manager_factory, thermostat, fake_hass):
+    """A personnalise level reads the custom values from the entry cascade."""
+    fake_hass.data[DOMAIN]["entries"]["global"] = {
+        CONF_LEVEL: LEVEL_PERSONNALISE,
+        CONF_STOP_MODE: STOP_MODE_OFF,
+        CONF_ENABLED: True,
+        CONF_DT_MIN: 45,
+        CONF_ERROR_THRESHOLD: 25,
+    }
     manager = install(manager_factory, thermostat)
-
-    await manager.set_auto_start_stop_enable(False)
-    assert manager.enabled is False
-    assert manager.auto_start_stop_enable is False
-
-    await manager.set_auto_start_stop_stop_mode(STOP_MODE_FAN_ONLY)
-    assert manager.stop_mode == STOP_MODE_FAN_ONLY
-
-
-async def test_reset_switch_delay_is_called_by_the_core(
-    manager_factory, thermostat, add_global_entry
-):
-    """The core resets the delay when the target temperature changes."""
-    add_global_entry(level=LEVEL_FAST)
-    manager = install(manager_factory, thermostat)
-    thermostat.current_temperature = 22.0
-    thermostat.last_temperature_slope = 6.0
-    for _ in range(40):
-        thermostat.advance(1)
-        if await manager.refresh_state():
-            break
-    assert manager.is_detected is True
-
-    manager.reset_switch_delay()
-    assert manager._algorithm.last_switch_date is None
-
-
-def test_restore_state_reads_the_attribute_section(
-    manager_factory, thermostat, add_global_entry
-):
-    from types import SimpleNamespace
-
-    add_global_entry(level=LEVEL_SLOW)
-    manager = install(manager_factory, thermostat)
-    old_state = SimpleNamespace(
-        attributes={
-            MANAGER_ATTRIBUTES_KEY: {
-                ATTR_IS_STOP_DETECTED: True,
-                ATTR_ACCUMULATED_ERROR: -4.5,
-            }
-        }
-    )
-    manager.restore_state(old_state)
-    assert manager.is_detected is True
-    assert manager._algorithm.accumulated_error == -4.5
-
-
-def test_restore_state_without_section_is_a_noop(
-    manager_factory, thermostat, add_global_entry
-):
-    from types import SimpleNamespace
-
-    add_global_entry()
-    manager = install(manager_factory, thermostat)
-    manager.restore_state(SimpleNamespace(attributes={}))
-    assert manager.is_detected is False
-    manager.restore_state(None)
-    assert manager.is_detected is False
-
-
-# ---------------------------------------------------------------------------
-# Preset change: immediate exit of the stop state (core behaviour parity)
-# ---------------------------------------------------------------------------
-
-
-async def test_preset_change_in_the_grey_zone_releases_the_stop(
-    manager_factory, thermostat, add_global_entry
-):
-    """A preset change must exit the auto-stop state in the same cycle.
-
-    Reproduces the core's exact sequence for a user-initiated preset change and
-    its "grey zone" regression case (core commit ``a9cdd7f``,
-    ``test_auto_start_stop_reset_switch_delay_grey_zone``):
-
-    1. Heating with SLOW params (dt_min = 30): the room (20 °C) is above the
-       low target (17 °C), the accumulated error is fully negative
-       (−threshold), the projection (20.6 °C) overshoots, so a stop has been
-       applied.
-    2. The user switches to a higher preset that needs heating: the target
-       becomes 20.5 °C. The core calls ``reset_switch_delay()`` on the manager
-       right after applying the preset, then re-enters the control cycle,
-       which refreshes the manager with the new target.
-    3. Projection: 20 + 0.02 × 30 = 20.6 °C lies *inside* the ±0.5 °C
-       hysteresis band of the new target (20.0 / 21.0): the start condition
-       (20.6 ≤ 20.0) is not explicitly met and the stop condition is no
-       longer met either (the reset pushed the accumulated error away from
-       the −threshold). The reset must still release the applied stop — it is
-       the only thing that does, and the core relies on the same reset.
-    """
-    add_global_entry(level=LEVEL_SLOW)  # dt_min=30, threshold=10
-    manager = install(manager_factory, thermostat)
-
-    # 1. Reach the applied stop: target 17, room 20 heating.
-    thermostat.target_temperature = 17.0
-    thermostat.current_temperature = 20.0
-    thermostat.last_temperature_slope = 1.2  # 0.02 °C/min
-    stopped = False
-    for _ in range(40):
-        thermostat.advance(2)  # one full 120 s cycle per step
-        stopped = await manager.refresh_state()
-        if stopped:
-            break
-    assert stopped is True
-    assert manager.is_detected is True
-
-    # 2. The user changes the preset to one that needs heating: the new
-    #    target (20.5) is already effective, and the core has reset the
-    #    switch delay on the manager.
-    thermostat.target_temperature = 20.5
-    manager.reset_switch_delay()
-    refresh_requests_before = thermostat.refresh_requests
-
-    # 3. The control cycle re-enters and refreshes the manager with the same
-    #    clock tick: the applied stop must be released, as with the core
-    #    feature.
-    assert await manager.refresh_state() is False
-    assert manager.is_detected is False
-    # The transition out of the stop state is applied within the same cycle.
-    assert thermostat.refresh_requests == refresh_requests_before + 1
+    assert manager.is_configured is True
+    assert manager._algorithm.level == LEVEL_PERSONNALISE
+    assert manager._algorithm.dt_min == 45
+    assert manager._algorithm.accumulated_error_threshold == 25

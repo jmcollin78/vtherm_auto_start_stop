@@ -7,6 +7,8 @@
         "description": "Shared detection parameters for every eligible thermostat. Enable and stop mode initialize entities without saved states only; later default edits do not reset existing entities.",
         "data": {
           "auto_start_stop_level": "Level",
+          "auto_start_stop_dtmin": "Minimum duration (minutes)",
+          "auto_start_stop_error_threshold": "Accumulated error threshold",
           "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
           "enabled": "Initially enabled (new entities only)"
         }
@@ -22,7 +24,9 @@
         "title": "Thermostat settings",
         "description": "Detection parameters override global values for this thermostat without changing its saved enable state or stop mode.",
         "data": {
-          "auto_start_stop_level": "Level"
+          "auto_start_stop_level": "Level",
+          "auto_start_stop_dtmin": "Minimum duration (minutes)",
+          "auto_start_stop_error_threshold": "Accumulated error threshold"
         }
       }
     },
@@ -42,6 +46,8 @@
         "description": "Dedicated detection parameters override global values. Enable and stop-mode defaults, when shown, initialize new entities only and never reset saved states.",
         "data": {
           "auto_start_stop_level": "Level",
+          "auto_start_stop_dtmin": "Minimum duration (minutes)",
+          "auto_start_stop_error_threshold": "Accumulated error threshold",
           "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
           "enabled": "Initially enabled (new entities only)"
         }
@@ -51,11 +57,11 @@
   "selector": {
     "auto_start_stop_level": {
       "options": {
-        "auto_start_stop_none": "None",
         "auto_start_stop_very_slow": "Very slow",
         "auto_start_stop_slow": "Slow",
         "auto_start_stop_medium": "Medium",
-        "auto_start_stop_fast": "Fast"
+        "auto_start_stop_fast": "Fast",
+        "auto_start_stop_personnalise": "Custom"
       }
     },
     "auto_start_stop_stop_mode": {
@@ -84,9 +90,9 @@
     }
   },
   "exceptions": {
-      "entity_id_conflict": {
-          "message": "Cannot reuse {entity_id}: it is already owned by another entity. Resolve the conflict and reload this configuration."
-      },
+    "entity_id_conflict": {
+      "message": "Cannot reuse {entity_id}: it is already owned by another entity. Resolve the conflict and reload this configuration."
+    },
     "invalid_auto_start_stop_option": {
       "message": "Unsupported auto start/stop option: {option}."
     },

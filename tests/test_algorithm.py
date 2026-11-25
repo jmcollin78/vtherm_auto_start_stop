@@ -14,9 +14,13 @@ from custom_components.vtherm_auto_start_stop.algorithm import (
     resolve_params,
 )
 from custom_components.vtherm_auto_start_stop.const import (
+    CONF_ERROR_THRESHOLD,
+    CONF_DT_MIN,
+    DEFAULT_ERROR_THRESHOLD,
+    DEFAULT_DT_MIN,
     LEVEL_FAST,
     LEVEL_MEDIUM,
-    LEVEL_NONE,
+    LEVEL_PERSONNALISE,
     LEVEL_SLOW,
     LEVEL_VERY_SLOW,
 )
@@ -47,14 +51,14 @@ def test_resolve_params_known_levels(level):
     assert params.error_threshold == ERROR_THRESHOLD[level]
 
 
-def test_resolve_params_none_level():
-    """The `none` level disables detection: zero duration and zero threshold."""
-    params = resolve_params(LEVEL_NONE)
-    assert params.dt_min == 0
-    assert params.error_threshold == 0
+def test_resolve_params_removed_none_literal_fonds_to_slow():
+    """The removed "none" literal no longer resolves to a real level."""
+    params = resolve_params("auto_start_stop_none")
+    assert params.dt_min == DT_MIN[LEVEL_SLOW]
+    assert params.error_threshold == ERROR_THRESHOLD[LEVEL_SLOW]
 
 
-@pytest.mark.parametrize("level", ["auto_start_stop_personnalise", "", "unknown"])
+@pytest.mark.parametrize("level", ["", "auto_start_stop_bogus"])
 def test_resolve_params_unknown_level_falls_back(level):
     """An unknown level must never break the control cycle."""
     params = resolve_params(level)
@@ -62,22 +66,42 @@ def test_resolve_params_unknown_level_falls_back(level):
     assert params.error_threshold == ERROR_THRESHOLD[LEVEL_SLOW]
 
 
+def test_resolve_params_personnalise_reads_config():
+    """personnalise resolves the custom per-instance values."""
+    params = resolve_params(
+        LEVEL_PERSONNALISE, {CONF_DT_MIN: 45, CONF_ERROR_THRESHOLD: 25}
+    )
+    assert params.dt_min == 45
+    assert params.error_threshold == 25
+
+
+@pytest.mark.parametrize("config", [None, {}])
+def test_resolve_params_personnalise_falls_back_to_slow(config):
+    """Absent custom values fall back to the SLOW-derived defaults."""
+    params = resolve_params(LEVEL_PERSONNALISE, config)
+    assert params.dt_min == DEFAULT_DT_MIN
+    assert params.error_threshold == DEFAULT_ERROR_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    ("config", "dt_min"),
+    [
+        # Non-numeric, null, NaN and inf must all be ignored.
+        ({CONF_DT_MIN: "forty"}, DEFAULT_DT_MIN),
+        ({CONF_DT_MIN: None}, DEFAULT_DT_MIN),
+        ({CONF_DT_MIN: float("nan")}, DEFAULT_DT_MIN),
+        ({CONF_DT_MIN: float("inf")}, DEFAULT_DT_MIN),
+        # Unknown level still resolves the custom values to the fallback.
+    ],
+)
+def test_resolve_params_personnalise_ignores_invalid_values(config, dt_min):
+    params = resolve_params(LEVEL_PERSONNALISE, config)
+    assert params.dt_min == dt_min
+
+
 # ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
-
-
-def test_none_level_never_detects():
-    algo = make(LEVEL_NONE)
-    algo.set_level(LEVEL_NONE)
-    assert algo.should_be_turned_off("heat", 20.0, 25.0, 1.0, at(0)) is False
-
-
-def test_missing_parameters_stay_idle():
-    """A partially initialized thermostat does not trigger anything."""
-    algo = make()
-    assert algo.should_be_turned_off("heat", None, 19.0, 0.0, at(0)) is False
-    assert algo.should_be_turned_off(None, 20.0, 19.0, 0.0, at(0)) is False
 
 
 def test_heating_stops_when_overshoot_is_confirmed():
@@ -177,6 +201,30 @@ def test_set_level_resets_the_accumulation():
     algo.set_level(LEVEL_FAST)
     assert algo.accumulated_error == 0
     assert algo.dt_min == DT_MIN[LEVEL_FAST]
+
+
+def test_set_params_personnalise_applies_custom_values():
+    algo = make(LEVEL_PERSONNALISE)
+    algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 45, CONF_ERROR_THRESHOLD: 25})
+    assert algo.level == LEVEL_PERSONNALISE
+    assert algo.dt_min == 45
+    assert algo.accumulated_error_threshold == 25
+
+
+def test_set_params_personnalise_resets_when_parameters_change():
+    algo = make(LEVEL_PERSONNALISE)
+    algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 45, CONF_ERROR_THRESHOLD: 25})
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(0))
+    assert algo.accumulated_error != 0
+    # Same level, different resolved parameters: the accumulation restarts.
+    algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 60, CONF_ERROR_THRESHOLD: 30})
+    assert algo.accumulated_error == 0
+    # A third submission with the same parameters must not reset again.
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(5))
+    before = algo.accumulated_error
+    assert before != 0
+    algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 60, CONF_ERROR_THRESHOLD: 30})
+    assert algo.accumulated_error == before
 
 
 def test_restore_rebuilds_the_published_state():

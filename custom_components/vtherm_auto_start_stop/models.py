@@ -22,12 +22,16 @@ if TYPE_CHECKING:
 
 from .const import (
     CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
     CONF_LEVEL,
+    CONF_DT_MIN,
     CONF_STOP_MODE,
     CONF_VTHERM_UNIQUE_ID,
     DEFAULT_ENABLED,
     DEFAULT_LEVEL,
     DEFAULT_STOP_MODE,
+    DEFAULT_DT_MIN,
+    DEFAULT_ERROR_THRESHOLD,
     LEVELS,
     LEGACY_LEVEL,
     STOP_MODES,
@@ -36,7 +40,20 @@ from .const import (
 
 #: Configuration values, distinct from the target entry metadata.
 CONFIG_KEYS = (CONF_LEVEL, CONF_STOP_MODE, CONF_ENABLED)
+
+#: The detection level, the only key a dedicated entry needs to be "complete".
+#: Kept narrow on purpose: the dedicated-entry completeness check
+#: (``__init__.py``) uses it, and widening it would treat a dedicated entry
+#: that has no custom values as incomplete.
 PARAMETER_KEYS = (CONF_LEVEL,)
+
+#: Custom detection parameters carried only when the level is ``personnalise``.
+CUSTOM_PARAMETER_KEYS = (CONF_DT_MIN, CONF_ERROR_THRESHOLD)
+
+#: All keys that cascade detection parameters through the global/dedicated
+#: layers. ``effective_config`` and the options-update reload trigger combine
+#: these so a custom value flows like any other detection parameter.
+PARAMETER_OVERLAYS = PARAMETER_KEYS + CUSTOM_PARAMETER_KEYS
 
 
 def entry_config(entry: ConfigEntry) -> dict[str, Any]:
@@ -55,6 +72,8 @@ def default_config() -> dict[str, Any]:
         CONF_LEVEL: DEFAULT_LEVEL,
         CONF_STOP_MODE: DEFAULT_STOP_MODE,
         CONF_ENABLED: DEFAULT_ENABLED,
+        CONF_DT_MIN: DEFAULT_DT_MIN,
+        CONF_ERROR_THRESHOLD: DEFAULT_ERROR_THRESHOLD,
     }
 
 
@@ -71,13 +90,21 @@ def _layers(
             if dedicated_layer is None:
                 dedicated_layer = {}
             dedicated_layer.update(
-                {key: entry[key] for key in PARAMETER_KEYS if key in entry}
+                {
+                    key: entry[key]
+                    for key in (*PARAMETER_KEYS, *CUSTOM_PARAMETER_KEYS)
+                    if key in entry
+                }
             )
         elif not target:
             if global_layer is None:
                 global_layer = {}
             global_layer.update(
-                {key: entry[key] for key in CONFIG_KEYS if key in entry}
+                {
+                    key: entry[key]
+                    for key in (*CONFIG_KEYS, *CUSTOM_PARAMETER_KEYS)
+                    if key in entry
+                }
             )
 
     return global_layer, dedicated_layer
@@ -103,7 +130,11 @@ def effective_config(
     config = {CONF_LEVEL: DEFAULT_LEVEL}
     if global_layer is not None:
         config.update(
-            {key: global_layer[key] for key in PARAMETER_KEYS if key in global_layer}
+            {
+                key: global_layer[key]
+                for key in PARAMETER_OVERLAYS
+                if key in global_layer
+            }
         )
     if dedicated_layer is not None:
         config.update(dedicated_layer)

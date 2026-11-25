@@ -62,27 +62,50 @@ CONF_ENABLED = "enabled"
 #: Thermodtat selection key used by the config flow.
 CONF_TARGET_ENTITY = "target_entity"
 
+#: Per-instance custom minimum duration in minutes (level ``personnalise``).
+CONF_DT_MIN = "auto_start_stop_dtmin"
+
+#: Per-instance custom accumulated-error threshold (level ``personnalise``).
+CONF_ERROR_THRESHOLD = "auto_start_stop_error_threshold"
+
 # ---------------------------------------------------------------------------
 # Level vocabulary (verbatim core values)
 # ---------------------------------------------------------------------------
+#
+# The historical ``none`` level (``auto_start_stop_none``) was retired: the
+# enable switch already controls activation, so a ``none`` level is redundant.
+# It is absent from ``LEVELS``, so ``normalize_level`` resolves stale entries
+# carrying it to the default rather than failing.
 
-LEVEL_NONE = "auto_start_stop_none"
 LEVEL_VERY_SLOW = "auto_start_stop_very_slow"
 LEVEL_SLOW = "auto_start_stop_slow"
 LEVEL_MEDIUM = "auto_start_stop_medium"
 LEVEL_FAST = "auto_start_stop_fast"
+LEVEL_PERSONNALISE = "auto_start_stop_personnalise"
 
-LEVELS = [LEVEL_NONE, LEVEL_VERY_SLOW, LEVEL_SLOW, LEVEL_MEDIUM, LEVEL_FAST]
+LEVELS = [
+    LEVEL_VERY_SLOW,
+    LEVEL_SLOW,
+    LEVEL_MEDIUM,
+    LEVEL_FAST,
+    LEVEL_PERSONNALISE,
+]
 
 TYPE_LEVEL = Literal[
-    "auto_start_stop_none",
     "auto_start_stop_very_slow",
     "auto_start_stop_slow",
     "auto_start_stop_medium",
     "auto_start_stop_fast",
+    "auto_start_stop_personnalise",
 ]
 
 DEFAULT_LEVEL = LEVEL_SLOW
+
+#: Fallback for the ``personnalise`` custom parameters and their form defaults:
+#: the SLOW level values, so an unspecified custom parameter behaves like the
+#: default rather than failing the refresh.
+DEFAULT_DT_MIN = 30
+DEFAULT_ERROR_THRESHOLD = 10
 
 # ---------------------------------------------------------------------------
 # Stop modes (verbatim core values)

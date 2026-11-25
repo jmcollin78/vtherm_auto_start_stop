@@ -148,7 +148,7 @@ class AutoStartStopManager:
         if state.enabled is not None and state.stop_mode is not None:
             self.restore_entity_state(state.enabled, state.stop_mode)
         level = normalize_level(config.get(CONF_LEVEL))
-        self._algorithm.set_level(level)
+        self._algorithm.set_params(level, config)
         self._algorithm.reset_switch_delay()
 
         self._hass.data.setdefault(DOMAIN, {}).setdefault(DATA_MANAGERS, {})[

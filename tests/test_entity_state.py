@@ -9,17 +9,38 @@ from homeassistant.helpers import entity_registry as er, restore_state as rs
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from custom_components.vtherm_auto_start_stop.const import (
-    CONF_ENABLED, CONF_ENTITY_IDS_ADOPTED, CONF_LEVEL, CONF_STOP_MODE, CONF_VTHERM_UNIQUE_ID,
-    DATA_ENTRIES, DOMAIN, ENTITY_ENABLE_SUFFIX,
-    ENTITY_STOP_MODE_SUFFIX, LEVEL_FAST, LEVEL_SLOW, MANAGER_NAME, VT_DOMAIN,
+    CONF_ENABLED,
+    CONF_ENTITY_IDS_ADOPTED,
+    CONF_LEVEL,
+    CONF_STOP_MODE,
+    CONF_VTHERM_UNIQUE_ID,
+    DATA_ENTRIES,
+    DOMAIN,
+    ENTITY_ENABLE_SUFFIX,
+    ENTITY_STOP_MODE_SUFFIX,
+    LEVEL_FAST,
+    LEVEL_SLOW,
+    MANAGER_NAME,
+    VT_DOMAIN,
+    CONF_DT_MIN,
+    CONF_ERROR_THRESHOLD,
+    LEVEL_PERSONNALISE,
 )
-from custom_components.vtherm_auto_start_stop.registry import ensure_entities, get_manager
+from custom_components.vtherm_auto_start_stop.registry import (
+    ensure_entities,
+    get_manager,
+)
 from tests.test_setup import (
-    custom_integrations, fake_api, mock_versatile_thermostat,
-    register_core_entry, runtime_for,
+    custom_integrations,
+    fake_api,
+    mock_versatile_thermostat,
+    register_core_entry,
+    runtime_for,
 )
 from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry, mock_restore_cache, mock_restore_cache_with_extra_data,
+    MockConfigEntry,
+    mock_restore_cache,
+    mock_restore_cache_with_extra_data,
 )
 
 
@@ -48,11 +69,14 @@ def attach_managers(hass, fake_api, cores):
 async def test_global_only_entities_do_not_create_or_modify_configurations(
     hass, fake_api, monkeypatch
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     cores = [register_core_entry(hass, name) for name in ("chambre", "salon")]
-    entry = MockConfigEntry(domain=DOMAIN, data={
-        CONF_LEVEL: LEVEL_FAST, CONF_ENABLED: False, CONF_STOP_MODE: "off"
-    })
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_FAST, CONF_ENABLED: False, CONF_STOP_MODE: "off"},
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -61,21 +85,30 @@ async def test_global_only_entities_do_not_create_or_modify_configurations(
     registry = er.async_get(hass)
     switches, selects = [], []
     for core in cores:
-        switches.append(registry.async_get_entity_id(
-            "switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
-        ))
-        selects.append(registry.async_get_entity_id(
-            "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
-        ))
+        switches.append(
+            registry.async_get_entity_id(
+                "switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
+            )
+        )
+        selects.append(
+            registry.async_get_entity_id(
+                "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
+            )
+        )
     assert all(switches) and all(selects)
     assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 4
     before_data, before_options = dict(entry.data), dict(entry.options)
     await hass.services.async_call(
-        "select", "select_option",
-        {"entity_id": selects[0], "option": "dry"}, blocking=True,
+        "select",
+        "select_option",
+        {"entity_id": selects[0], "option": "dry"},
+        blocking=True,
     )
     await hass.services.async_call(
-        "switch", "turn_on", {"entity_id": switches[0]}, blocking=True,
+        "switch",
+        "turn_on",
+        {"entity_id": switches[0]},
+        blocking=True,
     )
     assert managers[0].enabled is True and managers[0].stop_mode == "dry"
     assert managers[1].enabled is False and managers[1].stop_mode == "off"
@@ -96,19 +129,27 @@ async def global_controls(hass, fake_api, monkeypatch):
     reload = AsyncMock(return_value=True)
     monkeypatch.setattr(hass.config_entries, "async_reload", reload)
     cores = [register_core_entry(hass, name) for name in ("chambre", "salon")]
-    entry = MockConfigEntry(domain=DOMAIN, data={
-        CONF_LEVEL: LEVEL_FAST, CONF_ENABLED: False, CONF_STOP_MODE: "off"
-    })
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_FAST, CONF_ENABLED: False, CONF_STOP_MODE: "off"},
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     managers = attach_managers(hass, fake_api, cores)
     await hass.async_block_till_done()
     registry = er.async_get(hass)
-    ids = [{
-        "switch": registry.async_get_entity_id("switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"),
-        "select": registry.async_get_entity_id("select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"),
-    } for core in cores]
+    ids = [
+        {
+            "switch": registry.async_get_entity_id(
+                "switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
+            ),
+            "select": registry.async_get_entity_id(
+                "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
+            ),
+        }
+        for core in cores
+    ]
     return entry, cores, managers, ids, reload
 
 
@@ -117,7 +158,10 @@ async def test_default_edits_initialize_only_new_entities(
 ):
     entry, cores, managers, ids, reload = global_controls
     await hass.services.async_call(
-        "select", "select_option", {"entity_id": ids[0]["select"], "option": "dry"}, blocking=True
+        "select",
+        "select_option",
+        {"entity_id": ids[0]["select"], "option": "dry"},
+        blocking=True,
     )
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": ids[0]["switch"]}, blocking=True
@@ -129,11 +173,13 @@ async def test_default_edits_initialize_only_new_entities(
     await hass.async_block_till_done()
     reload.assert_not_awaited()
     assert [(manager.enabled, manager.stop_mode) for manager in managers] == [
-        (True, "dry"), (False, "off")
+        (True, "dry"),
+        (False, "off"),
     ]
     replacements = attach_managers(hass, fake_api, cores)
     assert [(manager.enabled, manager.stop_mode) for manager in replacements] == [
-        (True, "dry"), (False, "off")
+        (True, "dry"),
+        (False, "off"),
     ]
     core = register_core_entry(hass, "new")
     new = attach_managers(hass, fake_api, [core])[0]
@@ -148,7 +194,9 @@ async def test_default_edits_initialize_only_new_entities(
     restored = attach_managers(hass, fake_api, [*cores, core])
     await hass.async_block_till_done()
     assert [(manager.enabled, manager.stop_mode) for manager in restored] == [
-        (True, "dry"), (False, "off"), (True, "fan_only")
+        (True, "dry"),
+        (False, "off"),
+        (True, "fan_only"),
     ]
     reload.reset_mock()
     hass.config_entries.async_update_entry(
@@ -162,13 +210,19 @@ async def test_default_edits_initialize_only_new_entities(
         manager.post_init({})
         assert manager._algorithm.level == LEVEL_SLOW
     assert [(manager.enabled, manager.stop_mode) for manager in restored] == [
-        (True, "dry"), (False, "off"), (True, "fan_only")
+        (True, "dry"),
+        (False, "off"),
+        (True, "fan_only"),
     ]
 
 
-async def test_failed_platform_unload_preserves_controls(hass, global_controls, monkeypatch):
+async def test_failed_platform_unload_preserves_controls(
+    hass, global_controls, monkeypatch
+):
     entry, _, managers, ids, _ = global_controls
-    monkeypatch.setattr(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        hass.config_entries, "async_unload_platforms", AsyncMock(return_value=False)
+    )
     assert not await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert all(manager.is_configured for manager in managers)
@@ -178,16 +232,24 @@ async def test_failed_platform_unload_preserves_controls(hass, global_controls, 
 async def test_ownership_handover_and_coverage_removal(hass, fake_api, global_controls):
     global_entry, cores, managers, ids, _ = global_controls
     registry = er.async_get(hass)
-    original_rows = {entity_id: registry.async_get(entity_id).id for pair in ids for entity_id in pair.values()}
+    original_rows = {
+        entity_id: registry.async_get(entity_id).id
+        for pair in ids
+        for entity_id in pair.values()
+    }
     await hass.services.async_call(
-        "select", "select_option", {"entity_id": ids[0]["select"], "option": "dry"}, blocking=True
+        "select",
+        "select_option",
+        {"entity_id": ids[0]["select"], "option": "dry"},
+        blocking=True,
     )
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": ids[0]["switch"]}, blocking=True
     )
-    local = MockConfigEntry(domain=DOMAIN, data={
-        CONF_VTHERM_UNIQUE_ID: cores[0].unique_id, CONF_LEVEL: LEVEL_SLOW
-    })
+    local = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_VTHERM_UNIQUE_ID: cores[0].unique_id, CONF_LEVEL: LEVEL_SLOW},
+    )
     local.add_to_hass(hass)
     assert await hass.config_entries.async_setup(local.entry_id)
     await hass.async_block_till_done()
@@ -195,10 +257,17 @@ async def test_ownership_handover_and_coverage_removal(hass, fake_api, global_co
     assert await hass.config_entries.async_unload(local.entry_id)
     assert await hass.config_entries.async_setup(local.entry_id)
     await hass.async_block_till_done()
-    assert {entity_id: registry.async_get(entity_id).id for pair in ids for entity_id in pair.values()} == original_rows
+    assert {
+        entity_id: registry.async_get(entity_id).id
+        for pair in ids
+        for entity_id in pair.values()
+    } == original_rows
     assert await hass.config_entries.async_remove(global_entry.entry_id)
     await hass.async_block_till_done()
-    assert {row.entity_id for row in er.async_entries_for_config_entry(registry, local.entry_id)} == set(ids[0].values())
+    assert {
+        row.entity_id
+        for row in er.async_entries_for_config_entry(registry, local.entry_id)
+    } == set(ids[0].values())
     assert all(registry.async_get(entity_id) is None for entity_id in ids[1].values())
     assert all(hass.states.get(entity_id) is None for entity_id in ids[1].values())
     assert managers[1].is_configured is False
@@ -207,19 +276,27 @@ async def test_ownership_handover_and_coverage_removal(hass, fake_api, global_co
     await hass.async_block_till_done()
     assert replacement.enabled is True and replacement.stop_mode == "dry"
     assert replacement._algorithm.level == LEVEL_SLOW
-    assert all(registry.async_get(entity_id).id == original_rows[entity_id] for entity_id in ids[0].values())
+    assert all(
+        registry.async_get(entity_id).id == original_rows[entity_id]
+        for entity_id in ids[0].values()
+    )
     assert await hass.config_entries.async_remove(local.entry_id)
     await hass.async_block_till_done()
     assert all(registry.async_get(entity_id) is None for entity_id in ids[0].values())
     assert all(hass.states.get(entity_id) is None for entity_id in ids[0].values())
 
 
-async def test_global_addition_preserves_dedicated_entity_states(hass, fake_api, monkeypatch):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+async def test_global_addition_preserves_dedicated_entity_states(
+    hass, fake_api, monkeypatch
+):
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     core = register_core_entry(hass, "local")
-    local = MockConfigEntry(domain=DOMAIN, data={
-        CONF_VTHERM_UNIQUE_ID: core.unique_id, CONF_LEVEL: LEVEL_SLOW
-    })
+    local = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_VTHERM_UNIQUE_ID: core.unique_id, CONF_LEVEL: LEVEL_SLOW},
+    )
     local.add_to_hass(hass)
     assert await hass.config_entries.async_setup(local.entry_id)
     await hass.async_block_till_done()
@@ -229,16 +306,24 @@ async def test_global_addition_preserves_dedicated_entity_states(hass, fake_api,
     rows = er.async_entries_for_config_entry(registry, local.entry_id)
     ids = {row.domain: row.entity_id for row in rows}
     await hass.services.async_call(
-        "select", "select_option", {"entity_id": ids["select"], "option": "dry"}, blocking=True
+        "select",
+        "select_option",
+        {"entity_id": ids["select"], "option": "dry"},
+        blocking=True,
     )
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": ids["switch"]}, blocking=True
     )
-    global_entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: False, CONF_STOP_MODE: "off"})
+    global_entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_ENABLED: False, CONF_STOP_MODE: "off"}
+    )
     global_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(global_entry.entry_id)
     await hass.async_block_till_done()
-    assert {row.id for row in er.async_entries_for_config_entry(registry, global_entry.entry_id)} == {row.id for row in rows}
+    assert {
+        row.id
+        for row in er.async_entries_for_config_entry(registry, global_entry.entry_id)
+    } == {row.id for row in rows}
     assert manager.enabled is True and manager.stop_mode == "dry"
     assert hass.states.get(ids["switch"]).state == "on"
     assert hass.states.get(ids["select"]).state == "dry"
@@ -253,23 +338,46 @@ async def test_global_addition_preserves_dedicated_entity_states(hass, fake_api,
 async def test_native_restoration_and_one_time_legacy_migration(
     hass, fake_api, monkeypatch, versioned, saved
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     core = register_core_entry(hass, "chambre")
     ids = {"switch": "switch.historical_enable", "select": "select.historical_mode"}
     hass.config_entries.async_update_entry(
         core, data={**core.data, "auto_start_stop_entity_ids": ids}
     )
-    entry = MockConfigEntry(domain=DOMAIN, data={
-        CONF_VTHERM_UNIQUE_ID: core.unique_id, CONF_ENABLED: False, CONF_STOP_MODE: "dry"
-    })
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: core.unique_id,
+            CONF_ENABLED: False,
+            CONF_STOP_MODE: "dry",
+        },
+    )
     entry.add_to_hass(hass)
-    states = [State(ids[domain], "on" if domain == "switch" else "fan_only")
-              for domain in ids if saved in (domain, "both")]
+    states = [
+        State(ids[domain], "on" if domain == "switch" else "fan_only")
+        for domain in ids
+        if saved in (domain, "both")
+    ]
     if versioned:
-        mock_restore_cache_with_extra_data(hass, [
-            (state, {f"{DOMAIN}_state_version": 1, "value": state.state == "on" if state.domain == "switch" else state.state})
-            for state in states
-        ])
+        mock_restore_cache_with_extra_data(
+            hass,
+            [
+                (
+                    state,
+                    {
+                        f"{DOMAIN}_state_version": 1,
+                        "value": (
+                            state.state == "on"
+                            if state.domain == "switch"
+                            else state.state
+                        ),
+                    },
+                )
+                for state in states
+            ],
+        )
     else:
         mock_restore_cache(hass, states)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -277,12 +385,17 @@ async def test_native_restoration_and_one_time_legacy_migration(
     manager = attach_managers(hass, fake_api, [core])[0]
     await hass.async_block_till_done()
     assert manager.enabled is (versioned and saved in ("switch", "both"))
-    assert manager.stop_mode == ("fan_only" if versioned and saved in ("select", "both") else "dry")
+    assert manager.stop_mode == (
+        "fan_only" if versioned and saved in ("select", "both") else "dry"
+    )
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": ids["switch"]}, blocking=True
     )
     await hass.services.async_call(
-        "select", "select_option", {"entity_id": ids["select"], "option": "off"}, blocking=True
+        "select",
+        "select_option",
+        {"entity_id": ids["select"], "option": "off"},
+        blocking=True,
     )
     assert entry.options == {}
     assert entry.data[CONF_ENABLED] is False and entry.data[CONF_STOP_MODE] == "dry"
@@ -290,7 +403,10 @@ async def test_native_restoration_and_one_time_legacy_migration(
     await hass.async_block_till_done()
     assert DOMAIN not in hass.data
     stored = rs.async_get(hass).last_states
-    serialized = [(stored[entity_id].state, stored[entity_id].extra_data.as_dict()) for entity_id in ids.values()]
+    serialized = [
+        (stored[entity_id].state, stored[entity_id].extra_data.as_dict())
+        for entity_id in ids.values()
+    ]
     mock_restore_cache_with_extra_data(hass, serialized)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -304,15 +420,27 @@ async def test_native_restoration_and_one_time_legacy_migration(
 async def test_invalid_restored_mode_is_reported_without_enabling(
     hass, fake_api, monkeypatch, caplog, mode
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     core = register_core_entry(hass, "local")
     ids = {"switch": "switch.historical_enable", "select": "select.historical_mode"}
-    hass.config_entries.async_update_entry(core, data={**core.data, "auto_start_stop_entity_ids": ids})
-    mock_restore_cache_with_extra_data(hass, [
-        (State(ids["switch"], "off"), {f"{DOMAIN}_state_version": 1, "value": False}),
-        (State(ids["select"], mode), {f"{DOMAIN}_state_version": 1, "value": mode}),
-    ])
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: True, CONF_STOP_MODE: "fan_only"})
+    hass.config_entries.async_update_entry(
+        core, data={**core.data, "auto_start_stop_entity_ids": ids}
+    )
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(ids["switch"], "off"),
+                {f"{DOMAIN}_state_version": 1, "value": False},
+            ),
+            (State(ids["select"], mode), {f"{DOMAIN}_state_version": 1, "value": mode}),
+        ],
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_ENABLED: True, CONF_STOP_MODE: "fan_only"}
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -327,7 +455,10 @@ async def test_invalid_restored_mode_is_reported_without_enabling(
     assert "unsupported" in caplog.text or "invalid saved control" in caplog.text
     with pytest.raises(ServiceValidationError):
         await hass.services.async_call(
-            "select", "select_option", {"entity_id": ids["select"], "option": "dry"}, blocking=True
+            "select",
+            "select_option",
+            {"entity_id": ids["select"], "option": "dry"},
+            blocking=True,
         )
     assert entry.options == {}
     assert manager.enabled is False and manager.stop_mode == "off"
@@ -337,18 +468,28 @@ async def test_invalid_restored_mode_is_reported_without_enabling(
 async def test_global_controls_retain_partial_historical_core_states(
     hass, fake_api, monkeypatch, saved
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     core = register_core_entry(hass, "chambre")
     ids = {
         "switch": "switch.thermostat_chambre_enable_auto_start_stop",
         "select": "select.chambre_thermostat_chambre_auto_start_stop_stop_mode",
     }
-    hass.config_entries.async_update_entry(core, data={**core.data, "auto_start_stop_entity_ids": ids})
-    mock_restore_cache(hass, [
-        State(ids[domain], "on" if domain == "switch" else "dry")
-        for domain in ids if saved in (domain, "both")
-    ])
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: False, CONF_STOP_MODE: "off"})
+    hass.config_entries.async_update_entry(
+        core, data={**core.data, "auto_start_stop_entity_ids": ids}
+    )
+    mock_restore_cache(
+        hass,
+        [
+            State(ids[domain], "on" if domain == "switch" else "dry")
+            for domain in ids
+            if saved in (domain, "both")
+        ],
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_ENABLED: False, CONF_STOP_MODE: "off"}
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -357,7 +498,10 @@ async def test_global_controls_retain_partial_historical_core_states(
     assert manager.enabled is (saved in ("switch", "both"))
     assert manager.stop_mode == ("dry" if saved in ("select", "both") else "off")
     registry = er.async_get(hass)
-    assert {row.entity_id for row in er.async_entries_for_config_entry(registry, entry.entry_id)} == set(ids.values())
+    assert {
+        row.entity_id
+        for row in er.async_entries_for_config_entry(registry, entry.entry_id)
+    } == set(ids.values())
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
 
 
@@ -370,18 +514,29 @@ async def test_adoption_is_per_entity_including_later_thermostats(
     )
     await hass.async_block_till_done()
     core = register_core_entry(hass, "new")
-    ids = {"switch": "switch.new_historical_enable", "select": "select.new_historical_mode"}
-    hass.config_entries.async_update_entry(core, data={**core.data, "auto_start_stop_entity_ids": ids})
+    ids = {
+        "switch": "switch.new_historical_enable",
+        "select": "select.new_historical_mode",
+    }
+    hass.config_entries.async_update_entry(
+        core, data={**core.data, "auto_start_stop_entity_ids": ids}
+    )
     registry = er.async_get(hass)
     previous = registry.async_get_or_create(
-        "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}",
-        config_entry=entry, suggested_object_id="obsolete_plugin_name",
+        "select",
+        DOMAIN,
+        f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}",
+        config_entry=entry,
+        suggested_object_id="obsolete_plugin_name",
     )
     attach_managers(hass, fake_api, [core])
     await hass.async_block_till_done()
     assert registry.async_get(ids["select"]).id == previous.id
     for domain, entity_id in ids.items():
-        assert registry.async_get(entity_id).options[DOMAIN][CONF_ENTITY_IDS_ADOPTED] is True
+        assert (
+            registry.async_get(entity_id).options[DOMAIN][CONF_ENTITY_IDS_ADOPTED]
+            is True
+        )
         renamed = f"{domain}.user_renamed_new_{domain}"
         registry.async_update_entity(entity_id, new_entity_id=renamed)
     await hass.async_block_till_done()
@@ -396,23 +551,37 @@ async def test_adoption_is_per_entity_including_later_thermostats(
 async def test_old_dedicated_adoption_flag_preserves_existing_renames(
     hass, fake_api, monkeypatch
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     core = register_core_entry(hass, "local")
     ids = {"switch": "switch.original_activation", "select": "select.original_mode"}
-    hass.config_entries.async_update_entry(core, data={**core.data, "auto_start_stop_entity_ids": ids})
-    local = MockConfigEntry(domain=DOMAIN, data={
-        CONF_VTHERM_UNIQUE_ID: core.unique_id, CONF_ENTITY_IDS_ADOPTED: True,
-    })
+    hass.config_entries.async_update_entry(
+        core, data={**core.data, "auto_start_stop_entity_ids": ids}
+    )
+    local = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: core.unique_id,
+            CONF_ENTITY_IDS_ADOPTED: True,
+        },
+    )
     local.add_to_hass(hass)
     registry = er.async_get(hass)
     existing = registry.async_get_or_create(
-        "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}",
-        config_entry=local, suggested_object_id="already_renamed_mode",
+        "select",
+        DOMAIN,
+        f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}",
+        config_entry=local,
+        suggested_object_id="already_renamed_mode",
     )
     assert await hass.config_entries.async_setup(local.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get(existing.entity_id).id == existing.id
-    assert registry.async_get(existing.entity_id).options[DOMAIN][CONF_ENTITY_IDS_ADOPTED] is True
+    assert (
+        registry.async_get(existing.entity_id).options[DOMAIN][CONF_ENTITY_IDS_ADOPTED]
+        is True
+    )
     assert registry.async_get(ids["switch"]) is not None
     assert registry.async_get(ids["select"]) is None
     global_entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: False})
@@ -420,14 +589,18 @@ async def test_old_dedicated_adoption_flag_preserves_existing_renames(
     assert await hass.config_entries.async_setup(global_entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get(existing.entity_id).id == existing.id
-    assert registry.async_get(existing.entity_id).config_entry_id == global_entry.entry_id
+    assert (
+        registry.async_get(existing.entity_id).config_entry_id == global_entry.entry_id
+    )
     assert registry.async_get(ids["select"]) is None
 
 
 async def test_global_discovery_excludes_initially_ineligible_thermostats(
     hass, fake_api, monkeypatch
 ):
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
     eligible = register_core_entry(hass, "eligible")
     valve = register_core_entry(hass, "valve")
     other_type = register_core_entry(hass, "switch")
@@ -452,11 +625,16 @@ async def test_eligibility_changes_remove_controls_and_managers(
 ):
     entry, cores, managers, ids, _ = global_controls
     await hass.services.async_call(
-        "select", "select_option",
-        {"entity_id": ids[0]["select"], "option": "dry"}, blocking=True,
+        "select",
+        "select_option",
+        {"entity_id": ids[0]["select"], "option": "dry"},
+        blocking=True,
     )
     await hass.services.async_call(
-        "switch", "turn_on", {"entity_id": ids[0]["switch"]}, blocking=True,
+        "switch",
+        "turn_on",
+        {"entity_id": ids[0]["switch"]},
+        blocking=True,
     )
     runtime = runtime_for(hass, cores[0])
     if kind == "valve":
@@ -480,3 +658,71 @@ async def test_eligibility_changes_remove_controls_and_managers(
     await hass.async_block_till_done()
     assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 4
     assert manager.enabled is True and manager.stop_mode == "dry"
+
+
+# ---------------------------------------------------------------------------
+# Custom parameters (personnalise level) attribute exposure
+# ---------------------------------------------------------------------------
+
+
+async def test_personnalise_exposes_custom_attributes(hass, fake_api, monkeypatch):
+    """A personnalise thermostat exposes its custom level, dtmin and threshold."""
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
+    core = register_core_entry(hass, "local")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: core.unique_id,
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: "off",
+            CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    manager = attach_managers(hass, fake_api, [core])[0]
+    await hass.async_block_till_done()
+
+    attributes: dict = {}
+    manager.add_custom_attributes(attributes)
+    section = attributes["auto_start_stop_manager"]
+    assert section["auto_start_stop_level"] == LEVEL_PERSONNALISE
+    assert section["auto_start_stop_dtmin"] == 45
+    assert section["auto_start_stop_accumulated_error_threshold"] == 25
+
+
+async def test_named_levels_keep_the_same_attribute_names(hass, fake_api, monkeypatch):
+    """Naming is unchanged for the named levels: no dtmin/threshold regression."""
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
+    core = register_core_entry(hass, "local")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: core.unique_id,
+            CONF_LEVEL: LEVEL_SLOW,
+            CONF_STOP_MODE: "off",
+            CONF_ENABLED: True,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    manager = attach_managers(hass, fake_api, [core])[0]
+    await hass.async_block_till_done()
+
+    attributes: dict = {}
+    manager.add_custom_attributes(attributes)
+    section = attributes["auto_start_stop_manager"]
+    # SLOW named level keeps its tabulated values and the stable attribute names.
+    assert section["auto_start_stop_level"] == LEVEL_SLOW
+    assert section["auto_start_stop_dtmin"] == 30
+    assert section["auto_start_stop_accumulated_error_threshold"] == 10

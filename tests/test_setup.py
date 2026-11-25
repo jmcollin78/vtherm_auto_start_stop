@@ -165,6 +165,51 @@ async def test_entry_values_are_recorded(hass: HomeAssistant, fake_api):
     }
 
 
+async def test_dedicated_personnalise_exposes_custom_dtmin(
+    hass: HomeAssistant, fake_api, monkeypatch
+):
+    """A dedicated personnalise entry feeds the custom values to the manager."""
+    from custom_components.vtherm_auto_start_stop.const import (
+        ATTR_DTMIN,
+        CONF_DT_MIN,
+        CONF_ERROR_THRESHOLD,
+        LEVEL_PERSONNALISE,
+        MANAGER_ATTRIBUTES_KEY,
+    )
+
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
+    core = register_core_entry(hass, "local")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_VTHERM_UNIQUE_ID: core.unique_id,
+            CONF_LEVEL: LEVEL_PERSONNALISE,
+            CONF_STOP_MODE: STOP_MODE_OFF,
+            CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    runtime = runtime_for(hass, core)
+    manager = fake_api.managers[MANAGER_NAME].create(runtime)
+    manager.post_init(runtime.entry_infos)
+    await hass.async_block_till_done()
+    assert manager.is_configured is True
+
+    attributes: dict = {}
+    manager.add_custom_attributes(attributes)
+    section = attributes[MANAGER_ATTRIBUTES_KEY]
+    assert section[ATTR_DTMIN] == 45
+    assert section["auto_start_stop_level"] == LEVEL_PERSONNALISE
+    assert section["auto_start_stop_accumulated_error_threshold"] == 25
+
+
 def register_core_entry(hass, unique_id):
     entry = MockConfigEntry(
         domain=VT_DOMAIN,
@@ -227,7 +272,8 @@ async def test_global_option_changes_preserve_dedicated_overrides(
         await hass.async_block_till_done()
         reload.assert_not_awaited()
         for core, expected in (
-            (local_core, global_enabled), (other_core, global_enabled)
+            (local_core, global_enabled),
+            (other_core, global_enabled),
         ):
             runtime = runtime_for(hass, core)
             assert factory.supports(runtime)
@@ -264,9 +310,7 @@ async def test_removing_dedicated_entry_restores_global(
     core = register_core_entry(hass, "local")
     reload = AsyncMock(return_value=True)
     monkeypatch.setattr(hass.config_entries, "async_reload", reload)
-    global_entry = MockConfigEntry(
-        domain=DOMAIN, data={CONF_ENABLED: enabled}
-    )
+    global_entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: enabled})
     local_entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_VTHERM_UNIQUE_ID: core.unique_id, CONF_ENABLED: enabled},
@@ -321,7 +365,8 @@ async def test_global_changes_refresh_partially_overridden_thermostats(
     await hass.async_block_till_done()
 
     assert reload.await_args_list == [
-        call(local_core.entry_id), call(other_core.entry_id)
+        call(local_core.entry_id),
+        call(other_core.entry_id),
     ]
     factory = fake_api.managers[MANAGER_NAME]
     local_runtime = runtime_for(hass, local_core)
@@ -344,9 +389,7 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     monkeypatch.setattr(
         hass.config_entries, "async_reload", AsyncMock(return_value=True)
     )
-    global_entry = MockConfigEntry(
-        domain=DOMAIN, data={CONF_ENABLED: False}
-    )
+    global_entry = MockConfigEntry(domain=DOMAIN, data={CONF_ENABLED: False})
     global_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(global_entry.entry_id)
     await hass.async_block_till_done()
@@ -369,11 +412,17 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     local_entry = MockConfigEntry(domain=DOMAIN, data=data)
     local_entry.add_to_hass(hass)
     existing_select = registry.async_get_or_create(
-        "select", DOMAIN, select_uid, config_entry=local_entry,
+        "select",
+        DOMAIN,
+        select_uid,
+        config_entry=local_entry,
         suggested_object_id="existing_auto_start_stop",
     )
     existing_switch = registry.async_get_or_create(
-        "switch", DOMAIN, switch_uid, config_entry=local_entry,
+        "switch",
+        DOMAIN,
+        switch_uid,
+        config_entry=local_entry,
         suggested_object_id="existing_enable_auto_start_stop",
     )
     assert await hass.config_entries.async_setup(local_entry.entry_id)
@@ -393,8 +442,10 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     } == {switch_id, select_id}
 
     await hass.services.async_call(
-        "select", "select_option",
-        {"entity_id": select_id, "option": STOP_MODE_FAN_ONLY}, blocking=True,
+        "select",
+        "select_option",
+        {"entity_id": select_id, "option": STOP_MODE_FAN_ONLY},
+        blocking=True,
     )
     await hass.async_block_till_done()
     assert manager.enabled is False
@@ -438,7 +489,10 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     assert hass.states.get(select_id).state == STOP_MODE_FAN_ONLY
 
     await hass.services.async_call(
-        "switch", "turn_off", {"entity_id": switch_id}, blocking=True,
+        "switch",
+        "turn_off",
+        {"entity_id": switch_id},
+        blocking=True,
     )
     await hass.async_block_till_done()
     assert manager.enabled is False
@@ -487,7 +541,8 @@ async def test_upgrade_reuses_owned_plugin_controls_without_core_history(
         options={CONF_ENABLED: enabled, CONF_STOP_MODE: STOP_MODE_DRY},
     )
     other = MockConfigEntry(
-        domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: "other"},
+        domain=DOMAIN,
+        data={CONF_VTHERM_UNIQUE_ID: "other"},
         disabled_by=ConfigEntryDisabler.USER,
     )
     local.add_to_hass(hass)
@@ -495,18 +550,29 @@ async def test_upgrade_reuses_owned_plugin_controls_without_core_history(
     registry = er.async_get(hass)
     switch_uid = f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
     legacy = registry.async_get_or_create(
-        "switch", DOMAIN, switch_uid,
+        "switch",
+        DOMAIN,
+        switch_uid,
         config_entry=local,
     )
     core_switch = registry.async_get_or_create(
-        "switch", VT_DOMAIN, switch_uid, config_entry=core,
+        "switch",
+        VT_DOMAIN,
+        switch_uid,
+        config_entry=core,
     )
     other_switch = registry.async_get_or_create(
-        "switch", DOMAIN, f"other_{ENTITY_ENABLE_SUFFIX}", config_entry=other,
+        "switch",
+        DOMAIN,
+        f"other_{ENTITY_ENABLE_SUFFIX}",
+        config_entry=other,
     )
     select_uid = f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
     existing_select = registry.async_get_or_create(
-        "select", DOMAIN, select_uid, config_entry=local,
+        "select",
+        DOMAIN,
+        select_uid,
+        config_entry=local,
         suggested_object_id="user_selected_auto_start_stop",
     )
     original_data = dict(local.data)
@@ -552,7 +618,10 @@ async def test_historical_ids_preserve_card_services_and_later_user_renames(
         "select": "select.chambre_thermostat_chambre_auto_start_stop_stop_mode",
     }
     if custom_ids:
-        ids = {"switch": "switch.my_custom_activation", "select": "select.my_custom_mode"}
+        ids = {
+            "switch": "switch.my_custom_activation",
+            "select": "select.my_custom_mode",
+        }
     core = register_core_entry(hass, "chambre")
     target_uid = core.unique_id
     registry = er.async_get(hass)
@@ -561,7 +630,10 @@ async def test_historical_ids_preserve_card_services_and_later_user_renames(
         hass.config_entries.async_update_entry(core, unique_id=None)
         if lookup == "climate_registry":
             registry.async_get_or_create(
-                "climate", VT_DOMAIN, target_uid, config_entry=core,
+                "climate",
+                VT_DOMAIN,
+                target_uid,
+                config_entry=core,
                 suggested_object_id="thermostat_chambre",
             )
     hass.config_entries.async_update_entry(
@@ -583,13 +655,19 @@ async def test_historical_ids_preserve_card_services_and_later_user_renames(
     select_uid = f"{target_uid}_{ENTITY_STOP_MODE_SUFFIX}"
     switch_uid = f"{target_uid}_{ENTITY_ENABLE_SUFFIX}"
     old_select = registry.async_get_or_create(
-        "select", DOMAIN, select_uid, config_entry=local,
+        "select",
+        DOMAIN,
+        select_uid,
+        config_entry=local,
         suggested_object_id="combined_plugin_test_select",
     )
     old_switch = None
     if existing_switch:
         old_switch = registry.async_get_or_create(
-            "switch", DOMAIN, switch_uid, config_entry=local,
+            "switch",
+            DOMAIN,
+            switch_uid,
+            config_entry=local,
             suggested_object_id="earlier_plugin_test_switch",
         )
     if global_coverage:
@@ -614,20 +692,30 @@ async def test_historical_ids_preserve_card_services_and_later_user_renames(
     assert hass.states.get(ids["switch"]).state == "off"
     assert hass.states.get(ids["select"]).state == STOP_MODE_DRY
     assert hass.states.get(ids["select"]).attributes["options"] == [
-        STOP_MODE_OFF, STOP_MODE_FAN_ONLY, STOP_MODE_DRY
+        STOP_MODE_OFF,
+        STOP_MODE_FAN_ONLY,
+        STOP_MODE_DRY,
     ]
     await hass.services.async_call(
-        "switch", "turn_on",
-        {"entity_id": card_config["autoStartStopEnableEntity"]}, blocking=True,
-    )
-    await hass.services.async_call(
-        "select", "select_option",
-        {"entity_id": card_config["autoStartStopStopModeEntity"], "option": STOP_MODE_FAN_ONLY},
+        "switch",
+        "turn_on",
+        {"entity_id": card_config["autoStartStopEnableEntity"]},
         blocking=True,
     )
     await hass.services.async_call(
-        "switch", "turn_off",
-        {"entity_id": card_config["autoStartStopEnableEntity"]}, blocking=True,
+        "select",
+        "select_option",
+        {
+            "entity_id": card_config["autoStartStopStopModeEntity"],
+            "option": STOP_MODE_FAN_ONLY,
+        },
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": card_config["autoStartStopEnableEntity"]},
+        blocking=True,
     )
     await hass.async_block_till_done()
     assert manager.enabled is False
@@ -667,7 +755,10 @@ async def test_core_cleanup_defers_the_whole_pair_and_recovers_deleted_history(
         ("select", "auto_start_stop_stop_mode"),
     ):
         legacy = registry.async_get_or_create(
-            domain, VT_DOMAIN, f"{core.unique_id}_{suffix}", config_entry=core,
+            domain,
+            VT_DOMAIN,
+            f"{core.unique_id}_{suffix}",
+            config_entry=core,
             suggested_object_id=f"original_pending_{suffix}",
         )
         historical[domain] = legacy.entity_id
@@ -728,8 +819,7 @@ async def test_conflicting_identity_fails_setup_without_mutating_either_control(
     else:
         platform, owner = VT_DOMAIN, core
         suffix = (
-            "enable_auto_start_stop" if domain == "switch"
-            else ENTITY_STOP_MODE_SUFFIX
+            "enable_auto_start_stop" if domain == "switch" else ENTITY_STOP_MODE_SUFFIX
         )
         if conflict == "platform":
             platform = "unrelated_integration"
@@ -738,13 +828,19 @@ async def test_conflicting_identity_fails_setup_without_mutating_either_control(
         else:
             platform = DOMAIN
             owner = MockConfigEntry(
-                domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: "foreign"},
+                domain=DOMAIN,
+                data={CONF_VTHERM_UNIQUE_ID: "foreign"},
                 disabled_by=ConfigEntryDisabler.USER,
             )
             owner.add_to_hass(hass)
-            suffix = ENTITY_ENABLE_SUFFIX if domain == "switch" else ENTITY_STOP_MODE_SUFFIX
+            suffix = (
+                ENTITY_ENABLE_SUFFIX if domain == "switch" else ENTITY_STOP_MODE_SUFFIX
+            )
         foreign = registry.async_get_or_create(
-            domain, platform, f"{core.unique_id}_{suffix}", config_entry=owner,
+            domain,
+            platform,
+            f"{core.unique_id}_{suffix}",
+            config_entry=owner,
             suggested_object_id=historical[domain].split(".", 1)[1],
         )
     original_data = dict(local.data)
@@ -762,7 +858,8 @@ async def test_conflicting_identity_fails_setup_without_mutating_either_control(
 
 
 @pytest.mark.parametrize(
-    "invalid", [[], {"switch": None}, {"select": "switch.wrong"}, {"climate": "climate.wrong"}]
+    "invalid",
+    [[], {"switch": None}, {"select": "switch.wrong"}, {"climate": "climate.wrong"}],
 )
 async def test_invalid_historical_identity_metadata_fails_explicitly(
     hass, fake_api, invalid
@@ -771,9 +868,7 @@ async def test_invalid_historical_identity_metadata_fails_explicitly(
     hass.config_entries.async_update_entry(
         core, data={**core.data, "auto_start_stop_entity_ids": invalid}
     )
-    local = MockConfigEntry(
-        domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id}
-    )
+    local = MockConfigEntry(domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id})
     local.add_to_hass(hass)
     assert not await hass.config_entries.async_setup(local.entry_id)
     assert local.state is ConfigEntryState.SETUP_ERROR
@@ -800,22 +895,28 @@ async def test_unrelated_deleted_history_is_neither_adopted_nor_removed(
     else:
         unique_id = f"{core.unique_id}_unrelated_mode"
     foreign = registry.async_get_or_create(
-        domain, platform, unique_id, config_entry=owner,
+        domain,
+        platform,
+        unique_id,
+        config_entry=owner,
         suggested_object_id="unrelated_historical_control",
     )
     registry.async_remove(foreign.entity_id)
-    local = MockConfigEntry(
-        domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id}
-    )
+    local = MockConfigEntry(domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id})
     local.add_to_hass(hass)
     plugin_uid = f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
     existing = registry.async_get_or_create(
-        "select", DOMAIN, plugin_uid, config_entry=local,
+        "select",
+        DOMAIN,
+        plugin_uid,
+        config_entry=local,
         suggested_object_id="keep_existing_plugin_mode",
     )
     assert await hass.config_entries.async_setup(local.entry_id)
     await hass.async_block_till_done()
-    assert registry.async_get_entity_id("select", DOMAIN, plugin_uid) == existing.entity_id
+    assert (
+        registry.async_get_entity_id("select", DOMAIN, plugin_uid) == existing.entity_id
+    )
     assert not local.data.get(CONF_ENTITY_IDS_ADOPTED)
     assert (
         registry.deleted_entities[(domain, platform, unique_id)].entity_id
@@ -829,25 +930,30 @@ async def test_pending_core_control_does_not_hide_a_conflict_on_the_other_contro
     core = register_core_entry(hass, "pending")
     registry = er.async_get(hass)
     core_switch = registry.async_get_or_create(
-        "switch", VT_DOMAIN, f"{core.unique_id}_enable_auto_start_stop",
-        config_entry=core, suggested_object_id="pending_core_activation",
+        "switch",
+        VT_DOMAIN,
+        f"{core.unique_id}_enable_auto_start_stop",
+        config_entry=core,
+        suggested_object_id="pending_core_activation",
     )
     conflicting_select = registry.async_get_or_create(
-        "select", "unrelated_integration", "foreign", config_entry=core,
+        "select",
+        "unrelated_integration",
+        "foreign",
+        config_entry=core,
         suggested_object_id="conflicting_stop_mode",
     )
     hass.config_entries.async_update_entry(
-        core, data={
+        core,
+        data={
             **core.data,
             "auto_start_stop_entity_ids": {
                 "switch": core_switch.entity_id,
                 "select": conflicting_select.entity_id,
             },
-        }
+        },
     )
-    local = MockConfigEntry(
-        domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id}
-    )
+    local = MockConfigEntry(domain=DOMAIN, data={CONF_VTHERM_UNIQUE_ID: core.unique_id})
     local.add_to_hass(hass)
     assert not await hass.config_entries.async_setup(local.entry_id)
     assert local.state is ConfigEntryState.SETUP_ERROR

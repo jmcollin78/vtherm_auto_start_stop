@@ -30,19 +30,26 @@ from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
     CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
+    CONF_DT_MIN,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_TARGET_ENTITY,
     CONF_VTHERM_UNIQUE_ID,
+    DEFAULT_DT_MIN,
+    DEFAULT_ERROR_THRESHOLD,
     DOMAIN,
     LEGACY_REGULATION_MODE,
     LEGACY_REGULATION_VALVE,
     LEGACY_THERMOSTAT_TYPE,
     LEVELS,
+    LEVEL_PERSONNALISE,
+    LEVEL_SLOW,
     STOP_MODES,
     THERMOSTAT_TYPE_CLIMATE,
     VT_DOMAIN,
 )
+from .algorithm import DT_MIN, ERROR_THRESHOLD
 from .models import default_config, entry_config, legacy_level
 
 _LOGGER = get_vtherm_logger(__name__)
@@ -80,8 +87,77 @@ def _options_schema(
         ),
     }
     if parameters_only:
-        fields = {key: value for key, value in fields.items() if key.schema == CONF_LEVEL}
+        fields = {
+            key: value for key, value in fields.items() if key.schema == CONF_LEVEL
+        }
+    if defaults.get(CONF_LEVEL) == LEVEL_PERSONNALISE:
+        custom_fields = {
+            vol.Optional(
+                CONF_DT_MIN, default=defaults.get(CONF_DT_MIN, DEFAULT_DT_MIN)
+            ): (
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=5,
+                        max=120,
+                        unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                )
+            ),
+            vol.Optional(
+                CONF_ERROR_THRESHOLD,
+                default=defaults.get(CONF_ERROR_THRESHOLD, DEFAULT_ERROR_THRESHOLD),
+            ): (
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=50,
+                        step=0.5,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                )
+            ),
+        }
+        fields = dict(fields)
+        fields.update(custom_fields)
     return vol.Schema(fields)
+
+
+def _is_number(value: Any) -> bool:
+    """Return whether a value is a real number (bool is excluded on purpose)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _clamp_numbers(user_input: dict[str, Any]) -> None:
+    """Defensively clamp the custom parameters to the selector bounds.
+
+    The UI (selector.NumberSelector) already refuses out-of-range values; this
+    is a last-line guard for programmatic submits so a bad value is corrected
+    instead of silently accepted.
+    """
+    dt_min = user_input.get(CONF_DT_MIN)
+    if _is_number(dt_min):
+        user_input[CONF_DT_MIN] = max(5, min(120, int(dt_min)))
+    threshold = user_input.get(CONF_ERROR_THRESHOLD)
+    if _is_number(threshold):
+        user_input[CONF_ERROR_THRESHOLD] = max(1.0, min(50.0, float(threshold)))
+
+
+def _prefill_custom_params(
+    user_input: dict[str, Any], previous_level: str | None
+) -> None:
+    """Inject missing custom values when the user switches to personnalise.
+
+    When the resulting level is ``personnalise`` and a custom value is absent
+    from the submitted data (for example because the field was hidden at a
+    non-personnalise level), it is seeded from the previous level's table when
+    that level is a known named one, else from the plugin SLOW defaults.
+    """
+    if user_input.get(CONF_LEVEL) != LEVEL_PERSONNALISE:
+        return
+    source = previous_level if previous_level in DT_MIN else LEVEL_SLOW
+    user_input.setdefault(CONF_DT_MIN, DT_MIN[source])
+    user_input.setdefault(CONF_ERROR_THRESHOLD, ERROR_THRESHOLD[source])
 
 
 def _target_schema() -> vol.Schema:
@@ -145,6 +221,10 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Create the single global instance."""
         if user_input is not None:
+            _clamp_numbers(user_input)
+            _prefill_custom_params(
+                user_input, _global_defaults(self.hass).get(CONF_LEVEL)
+            )
             return self.async_create_entry(
                 title="Auto start/stop defaults", data=user_input
             )
@@ -185,11 +265,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Set the values of a dedicated instance, seeded from the legacy level."""
-        if user_input is not None:
-            data = dict(user_input)
-            data[CONF_VTHERM_UNIQUE_ID] = self._target_unique_id
-            return self.async_create_entry(title=self._target_title(), data=data)
-
         defaults = _global_defaults(self.hass)
         # Adopt the level the thermostat carried before the migration, unless
         # the thermostat already has a dedicated instance (the cascade is not
@@ -203,6 +278,13 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._target_unique_id,
                 seeded,
             )
+
+        if user_input is not None:
+            data = dict(user_input)
+            _clamp_numbers(data)
+            _prefill_custom_params(data, defaults.get(CONF_LEVEL))
+            data[CONF_VTHERM_UNIQUE_ID] = self._target_unique_id
+            return self.async_create_entry(title=self._target_title(), data=data)
 
         return self.async_show_form(
             step_id="thermostat_options",
@@ -288,6 +370,8 @@ class AutoStartStopOptionsFlow(OptionsFlow):
         current = entry_config(self._config_entry)
 
         if user_input is not None:
+            _clamp_numbers(user_input)
+            _prefill_custom_params(user_input, current.get(CONF_LEVEL))
             return self.async_create_entry(title="", data=user_input)
 
         defaults = _global_defaults(self.hass)

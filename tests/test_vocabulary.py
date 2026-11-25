@@ -41,11 +41,11 @@ def test_attribute_keys_match_the_core_feature():
 def test_levels_and_stop_modes_match_the_core_values():
     """The migration writes these literals into the core entry, so they are fixed."""
     assert plugin_const.LEVELS == [
-        "auto_start_stop_none",
         "auto_start_stop_very_slow",
         "auto_start_stop_slow",
         "auto_start_stop_medium",
         "auto_start_stop_fast",
+        "auto_start_stop_personnalise",
     ]
     assert plugin_const.STOP_MODES == ["off", "fan_only", "dry"]
 
@@ -75,7 +75,11 @@ def test_configuration_translations_match_direct_flow(filename):
     assert set(steps) == {"global", "thermostat", "thermostat_options"}
     assert set(content["config"]["abort"]) == {"already_configured"}
     assert steps["global"]["data"]["enabled"]
-    assert set(steps["thermostat_options"]["data"]) == {plugin_const.CONF_LEVEL}
+    assert set(steps["thermostat_options"]["data"]) == {
+        plugin_const.CONF_LEVEL,
+        plugin_const.CONF_DT_MIN,
+        plugin_const.CONF_ERROR_THRESHOLD,
+    }
     assert content["options"]["step"]["init"]["data"]["enabled"]
     initial_label = steps["global"]["data"]["enabled"].lower()
     assert "initial" in initial_label
@@ -94,9 +98,9 @@ def test_independent_control_translations_match_entity_options(filename):
     assert select["name"]
     assert set(select["state"]) == set(plugin_const.STOP_MODES)
     assert all(select["state"].values())
-    assert set(
-        content["selector"][plugin_const.CONF_STOP_MODE]["options"]
-    ) == set(plugin_const.STOP_MODES)
+    assert set(content["selector"][plugin_const.CONF_STOP_MODE]["options"]) == set(
+        plugin_const.STOP_MODES
+    )
     exceptions = content["exceptions"]
     assert "{option}" in exceptions["invalid_auto_start_stop_option"]["message"]
     assert exceptions["missing_configuration"]["message"]
