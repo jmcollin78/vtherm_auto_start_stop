@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="custom_components/vtherm_auto_start_stop/brand/icon.png" alt="VTherm Auto Start/Stop" width="256" height="256">
+</p>
+
 # VTherm Auto Start/Stop
 
 **[English](README.md) · [Français](README-fr.md)** · [Contributors (EN)](CONTRIBUTING.md) · [Contributeurs (FR)](CONTRIBUTING-fr.md)
@@ -7,7 +11,7 @@ that automatically stops your climate device once the room has reached its targe
 temperature, and lets Versatile Thermostat resume it normally when the temperature
 drifts away again.
 
-## What is it for?
+## 🎯 What is it for?
 
 Your climate device (heat pump, heater, cooling system…) keeps running until the
 Versatile Thermostat logic decides otherwise — even when the room is already at the
@@ -23,14 +27,12 @@ drifts from the target again.
   operates them exactly as before.
 - **One global configuration** covers all of your thermostats; per-thermostat
   parameter overrides are optional and never needed merely to enable a room.
-- **The home of a migrated core feature** — the auto start/stop that used to live
-  inside Versatile Thermostat has been extracted into this standalone plugin.
-  Existing installations migrate automatically: controls, dashboards and entity
-  IDs are preserved.
+- **Standalone** — auto start/stop runs entirely as this plugin, with the
+  Versatile Thermostat logic left untouched.
 
-## How does the detection work? (in plain words)
+## 🔍 How does the detection work? (in plain words)
 
-Every ~2 minutes the plugin takes a measurement and asks one question:
+Regularly, the plugin takes a measurement and asks one question:
 **"How far is the room from the target, and for how long has it stayed there?"**
 
 1. **The deviation** — the current temperature is compared to the target. If the
@@ -70,21 +72,20 @@ The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 > level the static table is used instead — and the values are saved in the entry
 > so you do not have to re-enter them when you switch back to *Custom*.
 
-## Supported thermostats
+## 📋 Supported thermostats
 
 - Only **`over_climate`** thermostats (a Versatile Thermostat driving a
   climate device) are eligible.
 - **Valve-regulated thermostats are not supported** — the same restriction the
   core feature had, kept on purpose so the migration is a pure handover.
 
-## Installation
+## 📦 Installation
 
 **Prerequisites**
 
 - Home Assistant **2026.10** or later.
-- A Versatile Thermostat version with **external auto start/stop delegation**
-  support. The plugin, the core and the `vtherm_api` package are released as a
-  coordinated triple (the manifest pins `vtherm_api >= 0.13.1`).
+- Versatile Thermostat **11.x or later**, with **external auto start/stop
+  delegation** support.
 
 **Option A — HACS**
 
@@ -100,9 +101,9 @@ The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 2. Restart Home Assistant.
 3. Go to **Settings → Devices & services** and add **VTherm Auto Start/Stop**.
 
-## Configuration
+## ⚙️ Configuration
 
-### The global configuration (the only mandatory one)
+### 🌍 The global configuration (the only mandatory one)
 
 The first time you add the integration, you configure the **global settings**:
 
@@ -133,7 +134,7 @@ Every eligible thermostat automatically receives its own pair of controls:
 All of these states survive reloads and restarts. Changing a control never
 creates a configuration entry and never modifies the global settings.
 
-### Per-thermostat parameters (optional dedicated entries)
+### 🎛️ Per-thermostat parameters (optional dedicated entries)
 
 If one thermostat needs different **detection parameters** — say a slow room
 that should not stop quickly — add another configuration entry:
@@ -147,7 +148,7 @@ stay on the entity controls (no dedicated entry is ever needed for those).
 Parameters you do not set in the dedicated entry inherit from the global entry,
 then from the plugin defaults.
 
-### Removing entries
+### 🗑️ Removing entries
 
 - Removing a **dedicated** entry restores parameter inheritance; the
   thermostat's controls, activation and stop mode are untouched.
@@ -155,7 +156,7 @@ then from the plugin defaults.
   has no dedicated entry of its own; thermostats that do keep working, with
   missing parameters falling back to the plugin defaults.
 
-## Migrating from the core feature
+## 🔄 Migrating from the core feature
 
 If your thermostats already used the built-in auto start/stop:
 
@@ -169,7 +170,7 @@ If your thermostats already used the built-in auto start/stop:
 - Removing the plugin does **not** silently re-enable the old core feature —
   re-enable it through Versatile Thermostat if you want it back.
 
-## Frequently asked questions
+## ❓ Frequently asked questions
 
 **I disabled the feature on a thermostat — why do the controls and attributes
 still show up?**
@@ -186,8 +187,11 @@ created.
 That is intentional: valve-regulated `over_climate` thermostats stay excluded,
 exactly as with the core feature.
 
-## Contributing
+## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) / [CONTRIBUTING-fr.md](CONTRIBUTING-fr.md)
 for the design, the mandatory OpenSpec workflow and the interactions with the
 Versatile Thermostat core.
+
+> **Note:** This plugin replaces the equivalent auto start/stop feature of the
+> Versatile Thermostat core, which will be **completely removed in 2027**.

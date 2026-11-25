@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="custom_components/vtherm_auto_start_stop/brand/icon.png" alt="VTherm Auto Start/Stop" width="256" height="256">
+</p>
+
 # VTherm Auto Start/Stop
 
 **[Français](README-fr.md) · [English](README.md)** · [Contributeurs (FR)](CONTRIBUTING-fr.md) · [Contributors (EN)](CONTRIBUTING.md)
@@ -7,7 +11,7 @@ qui arrête automatiquement votre équipement de climatisation une fois que la
 pièce a atteint sa consigne, et qui laisse Versatile Thermostat le redémarrer
 normalement quand la température s'éloigne à nouveau.
 
-## À quoi ça sert ?
+## 🎯 À quoi ça sert ?
 
 Votre équipement (pompe à chaleur, chaudière, climatiseur…) continue de
 **fonctionner** jusqu'à ce que la logique de Versatile Thermostat décide du
@@ -26,14 +30,12 @@ pièce s'écarte de la consigne.
 - **Une seule configuration globale** couvre tous vos thermostats ; les
   paramètres par thermostat sont optionnels et ne sont jamais nécessaires juste
   pour activer une pièce.
-- **La maison d'une fonctionnalité migrée** — l'auto start/stop qui vivait à
-  l'intérieur de Versatile Thermostat a été extrait dans ce plugin autonome.
-  Les installations existantes migrent automatiquement : contrôles, tableaux de
-  bord et identifiants d'entités sont conservés.
+- **Autonome** — l'auto start/stop fonctionne entièrement comme plugin, la
+  logique de Versatile Thermostat restant inchangée.
 
-## Comment la détection fonctionne-t-elle ? (en termes simples)
+## 🔍 Comment la détection fonctionne-t-elle ? (en termes simples)
 
-Toutes les ~2 minutes, le plugin prend une mesure et se pose une seule question :
+Régulièrement, le plugin prend une mesure et se pose une seule question :
 **« À combien près la pièce est-elle de la consigne, et depuis combien de temps ? »**
 
 1. **L'écart** — la température actuelle est comparée à la consigne. Si la pièce
@@ -74,7 +76,7 @@ l'ancienne fonctionnalité du core.
 > et les valeurs sont sauvegardées dans l'entrée pour ne pas avoir à les
 > ressaisir en revenant à *Personnalisé*.
 
-## Thermostats pris en charge
+## 📋 Thermostats pris en charge
 
 - Seuls les thermostats **`over_climate`** (un Versatile Thermostat pilotant un
   équipement clim) sont éligibles.
@@ -82,15 +84,13 @@ l'ancienne fonctionnalité du core.
   même restriction que la fonctionnalité du core, conservée volontairement pour
   que la migration soit une simple mainlevée.
 
-## Installation
+## 📦 Installation
 
 **Prérequis**
 
 - Home Assistant **2026.10** ou plus récent.
-- Une version de Versatile Thermostat avec la prise en charge de la
-  **délégation externe auto start/stop**. Le plugin, le core et le package
-  `vtherm_api` sont publiés en triple coordonnée (le manifest pinne
-  `vtherm_api >= 0.13.1`).
+- Versatile Thermostat **11.x ou une version ultérieure**, avec la prise en
+  charge de la **délégation externe auto start/stop**.
 
 **Option A — HACS**
 
@@ -108,9 +108,9 @@ l'ancienne fonctionnalité du core.
 3. Allez dans **Paramètres → Appareils et services** et ajoutez
    **VTherm Auto Start/Stop**.
 
-## Configuration
+## ⚙️ Configuration
 
-### La configuration globale (la seule obligatoire)
+### 🌍 La configuration globale (la seule obligatoire)
 
 La première fois que vous ajoutez l'intégration, vous configurez les
 **paramètres globaux** :
@@ -145,7 +145,7 @@ Tous ces états survivent aux rechargements et redémarrages. Modifier un contr�
 ne crée jamais d'entrée de configuration et ne modifie jamais les paramètres
 globaux.
 
-### Les paramètres par thermostat (entrées dédiées optionnelles)
+### 🎛️ Les paramètres par thermostat (entrées dédiées optionnelles)
 
 Si un thermostat a besoin de **paramètres de détection** différents — par
 exemple une pièce qui monte vite et ne devrait pas être arrêtée précipitamment —
@@ -161,7 +161,7 @@ mode d'arrêt restent toujours sur les contrôles d'entité (aucune entrée déd
 n'est jamais nécessaire pour ça). Les paramètres non définis dans l'entrée
 dédiée héritent de l'entrée globale, puis des valeurs par défaut du plugin.
 
-### Supprimer des entrées
+### 🗑️ Supprimer des entrées
 
 - Supprimer une entrée **dédiée** restaure l'héritage des paramètres ; les
   contrôles, l'activation et le mode d'arrêt du thermostat sont intacts.
@@ -169,7 +169,7 @@ dédiée héritent de l'entrée globale, puis des valeurs par défaut du plugin.
   qui n'ont pas d'entrée dédiée ; ceux qui en ont continuent à fonctionner, les
   paramètres manquants basculant sur les valeurs par défaut du plugin.
 
-## Migration depuis la fonctionnalité du core
+## 🔄 Migration depuis la fonctionnalité du core
 
 Si vos thermostats utilisaient déjà l'auto start/stop intégré :
 
@@ -186,7 +186,7 @@ Si vos thermostats utilisaient déjà l'auto start/stop intégré :
   fonctionnalité du core — réactivez-la via Versatile Thermostat si vous la
   voulez de retour.
 
-## Questions fréquentes
+## ❓ Questions fréquentes
 
 **J'ai désactivé la fonctionnalité sur un thermostat — pourquoi les contrôles
 et les attributs s'affichent-ils encore ?**
@@ -204,8 +204,11 @@ Aucune entrée de configuration supplémentaire n'est créée.
 C'est volontaire : les thermostats à régulation par vanne restent exclus,
 exactement comme avec la fonctionnalité du core.
 
-## Contribuer
+## 🤝 Contribuer
 
 Voir [CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
 pour la conception, le workflow OpenSpec obligatoire et les interactions avec
 le core Versatile Thermostat.
+
+> **Note :** Ce plugin remplace la fonction équivalente d'auto start/stop du
+> core Versatile Thermostat, qui sera **totalement supprimée en 2027**.
