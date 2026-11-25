@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="custom_components/vtherm_auto_start_stop/brand/icon.png" alt="VTherm Auto Start/Stop" width="256" height="256">
+</p>
+
+<p align="center">
   [![GitHub Release][releases-shield]][releases]
   [![GitHub Activity][commits-shield]][commits]
   [![License][license-shield]](LICENSE)
