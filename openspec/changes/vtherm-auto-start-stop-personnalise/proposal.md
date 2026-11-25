@@ -12,8 +12,8 @@ Ce change ajoute un sixième niveau — **Personnalisé** — qui laisse l'utili
 - Le niveau `AUCUN` (`auto_start_stop_none`) est retiré du sélecteur. Les entrées existantes portant cette valeur la résolvent vers les valeurs par défaut du plugin (les valeurs du niveau SLOW : 30 min / 10) via le mécanisme de retour arrière des valeurs inconnues, sans migration.
 - Deux clés de configuration (`dt_min`, `error_threshold`) sont ajoutées à la cascade de résolution (déploiement → global → dédié).
 - `resolve_params` est étendu : pour `PERSONNALISE`, les valeurs sont lues des clés custom de la configuration effective ; en l'absence de ces clés, les valeurs du niveau précédent sont utilisées comme retour arrière.
-- Le schéma d'options du flux de configuration passe en mode conditionnel : quand le niveau sélectionné vaut `PERSONNALISE`, deux `NumberSelector` (délai 5 → 120 min, seuil 1 → 50) apparaissent dans le même formulaire.
-- L'`options flow` pré-remplit ces champs depuis les valeurs correspondantes du niveau actuellement sélectionné (héritage du niveau précédent) au moment où l'utilisateur bascule sur Personnalisé.
+- Le schéma d'options du flux de configuration expose **en permanence** deux `NumberSelector` (délai 5 → 120 min, seuil 1 → 50) dans le formulaire, quel que soit le niveau.
+- Aucun pré-remplissage au switch n'est nécessaire : les deux valeurs sont toujours visibles et pré-remplies depuis l'entry courante (ou les défauts plugin SLOW 30/10 si l'entry est vierge). Le submit les envoie toujours et les `vol.Optional(default=...)` peuplent l'entry ; `resolve_params` ne les lit que si le niveau vaut `personnalise`.
 - Les traductions FR/EN sont mises à jour (ajout du libellé Personnalisé, retrait du libellé Aucun).
 
 ## Capabilities

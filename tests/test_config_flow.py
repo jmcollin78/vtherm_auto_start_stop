@@ -166,7 +166,12 @@ async def test_dedicated_entry_stores_the_thermostat_unique_id(hass, thermostat_
         result["flow_id"], {CONF_TARGET_ENTITY: THERMOSTAT_ENTITY}
     )
     assert result["step_id"] == "thermostat_options"
-    assert set(result["data_schema"].schema) == {CONF_LEVEL}
+    # The dedicated form exposes all detection fields (level + custom params).
+    assert set(result["data_schema"].schema) == {
+        CONF_LEVEL,
+        CONF_DT_MIN,
+        CONF_ERROR_THRESHOLD,
+    }
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -227,7 +232,11 @@ async def test_dedicated_parameters_can_be_edited(hass, enabled):
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "init"
-    assert set(result["data_schema"].schema) == {CONF_LEVEL}
+    assert set(result["data_schema"].schema) == {
+        CONF_LEVEL,
+        CONF_DT_MIN,
+        CONF_ERROR_THRESHOLD,
+    }
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
@@ -256,7 +265,7 @@ async def test_dedicated_settings_do_not_expose_enable_or_mode(hass, enabled):
 
     result = await reach_thermostat_options(hass)
     defaults = result["data_schema"]({})
-    assert set(defaults) == {CONF_LEVEL}
+    assert set(defaults) == {CONF_LEVEL, CONF_DT_MIN, CONF_ERROR_THRESHOLD}
 
 
 # ---------------------------------------------------------------------------
@@ -393,8 +402,15 @@ async def test_an_existing_dedicated_instance_is_not_overwritten(hass):
 # ---------------------------------------------------------------------------
 
 
-async def test_prefill_seeds_custom_values_from_the_previous_level(hass):
-    """Switching to personnalise after 'slow' seeds dt_min=30, threshold=10."""
+async def test_custom_fields_always_visible_in_the_form(hass):
+    """The dt_min / error_threshold selectors are shown at every level, not only personnalise.
+
+    They are seeded with the plugin defaults (SLOW: 30 / 10) by default, but
+    the user can read or edit them at any time. When the resulting level is a
+    named one the algorithm ignores those values (resolve_params reads the
+    named table), but they remain persisted in the entry so the user does not
+    have to re-enter them on the next personnalise switch.
+    """
     global_entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -407,14 +423,29 @@ async def test_prefill_seeds_custom_values_from_the_previous_level(hass):
 
     result = await hass.config_entries.options.async_init(global_entry.entry_id)
     assert result["step_id"] == "init"
-    # The form was rendered at the slow level: only the common fields are shown.
-    assert CONF_DT_MIN not in set(result["data_schema"].schema)
+    # Both custom fields are always visible, whatever the current level is.
+    assert set(result["data_schema"].schema) == {
+        CONF_LEVEL,
+        CONF_STOP_MODE,
+        CONF_ENABLED,
+        CONF_DT_MIN,
+        CONF_ERROR_THRESHOLD,
+    }
+    # The selectors are pre-filled with the plugin defaults (SLOW : 30 / 10).
+    defaults = result["data_schema"]({})
+    assert defaults[CONF_DT_MIN] == 30
+    assert defaults[CONF_ERROR_THRESHOLD] == 10
+
+    # Switching to personnalise and leaving the default values as-is:
+    # they end up persisted on the entry (the selector sends them).
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             CONF_LEVEL: LEVEL_PERSONNALISE,
             CONF_STOP_MODE: STOP_MODE_DRY,
             CONF_ENABLED: True,
+            CONF_DT_MIN: 30,
+            CONF_ERROR_THRESHOLD: 10,
         },
     )
     await hass.async_block_till_done()
@@ -425,8 +456,15 @@ async def test_prefill_seeds_custom_values_from_the_previous_level(hass):
     assert config[CONF_ERROR_THRESHOLD] == 10
 
 
-async def test_custom_keys_persist_through_a_level_round_trip(hass):
-    """The custom keys stay in the entry options after personnalise→medium→personnalise."""
+async def test_custom_values_stay_in_the_entry_after_a_level_change(hass):
+    """The custom keys stay in the entry across personnalise→medium→personnalise.
+
+    Because the forms always expose the two selectors, changing the level from
+    personnalise to a named one does NOT erase the custom values from the
+    entry : they are still submitted with the (user-edited) values. resolve_params
+    only reads them when the level is LEVEL_PERSONNALISE, so a named level
+    ignores them without dropping them (design.md, decision C1).
+    """
     global_entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -439,17 +477,27 @@ async def test_custom_keys_persist_through_a_level_round_trip(hass):
     )
     global_entry.add_to_hass(hass)
 
-    # personnalise → medium: the custom fields are not shown, so they are not
-    # resubmitted and drop out of the options.
+    # personnalise → medium : the user resubmits the same values visible in the
+    # form (45/25), so both keys remain in the options even at a named level.
     result = await hass.config_entries.options.async_init(global_entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {CONF_LEVEL: LEVEL_MEDIUM, CONF_STOP_MODE: STOP_MODE_DRY, CONF_ENABLED: True},
+        {
+            CONF_LEVEL: LEVEL_MEDIUM,
+            CONF_STOP_MODE: STOP_MODE_DRY,
+            CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25,
+        },
     )
     await hass.async_block_till_done()
+    assert entry_config(global_entry)[CONF_LEVEL] == LEVEL_MEDIUM
+    # Custom values persist but are not applied at the named level.
+    assert entry_config(global_entry)[CONF_DT_MIN] == 45
+    assert entry_config(global_entry)[CONF_ERROR_THRESHOLD] == 25
 
-    # medium → personnalise: the custom fields come back, re-seeded from the
-    # previous (medium) level, so both keys are present again in the options.
+    # medium → personnalise : the same visible values (45/25) are resubmitted,
+    # and now the algorithm reads them.
     result = await hass.config_entries.options.async_init(global_entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -457,14 +505,16 @@ async def test_custom_keys_persist_through_a_level_round_trip(hass):
             CONF_LEVEL: LEVEL_PERSONNALISE,
             CONF_STOP_MODE: STOP_MODE_DRY,
             CONF_ENABLED: True,
+            CONF_DT_MIN: 45,
+            CONF_ERROR_THRESHOLD: 25,
         },
     )
     await hass.async_block_till_done()
 
     config = entry_config(global_entry)
     assert config[CONF_LEVEL] == LEVEL_PERSONNALISE
-    assert config[CONF_DT_MIN] == 15  # re-seeded from medium
-    assert config[CONF_ERROR_THRESHOLD] == 5
+    assert config[CONF_DT_MIN] == 45
+    assert config[CONF_ERROR_THRESHOLD] == 25
     assert CONF_DT_MIN in global_entry.options
     assert CONF_ERROR_THRESHOLD in global_entry.options
 

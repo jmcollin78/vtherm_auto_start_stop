@@ -13,7 +13,7 @@ Le code est structuré pour que l'ajout d'un niveau ne touche qu'une seule fonct
 **Objectifs :**
 - Ajouter `personnalise` comme sixième niveau au vocabulaire des niveaux.
 - Permettre à l'utilisateur de définir `dt_min` et `error_threshold` pour un thermostat donné.
-- Pré-remplir ces champs depuis le niveau précédent au moment du switch.
+- **Afficher en permanence** ces deux champs dans le formulaire (global et dédié) : l'utilisateur peut les consulter et les modifier sans avoir à re-ouvrir la configuration.
 - Maintenir la rétro-compatibilité stricte : aucune migration des entrées existantes, aucune modification de la UI Card.
 
 **Non-objectifs :**
@@ -66,43 +66,42 @@ def resolve_params(level: str, config: dict[str, Any]) -> LevelParams:
 
 Le manager passe `config` (résultat de `effective_config`) à chaque appel de `set_level` ou directement lors de la construction de l'algorithme. Le `fallback` par défaut (valeurs de `SLOW`) est un garde-fou pour un entry corrompu ou obsolète — il ne se produit normalement jamais après un switch propre fait par les options flow.
 
-### 4. Pré-remplissage au switch dans l'`options flow`
+### 4. Champs `dt_min` et `error_threshold` toujours visibles
 
-Le point clé du comportement attendu (décision A1) : quand l'utilisateur change le niveau à `personnalise`, les champs `dt_min` et `error_threshold` doivent se pré-remplir avec les valeurs du niveau sélectionné *avant* le switch.
+**Décision A1 (révisée)** : les deux sélecteurs `NumberSelector` sont affichés **en permanence** dans le formulaire global ET dédié, quel que soit le niveau sélectionné. L'utilisateur peut donc :
 
-Le mécanisme s'effectue dans `auto_options_flow.async_step_init` : avant de traiter le submit, on lit `self._config_entry.data[CONF_LEVEL]` (l'ancienne valeur). Si le `user_input` soumis contient `CONF_LEVEL == LEVEL_PERSONNALISE` et que les champs custom ne sont **pas** dans le `user_input` (c'est le cas normal : l'UI ne les affichait pas avant le submit), on injecte les valeurs du niveau précédent dans le `data` final.
+- consulter les valeurs courantes à tout moment (pré-remplies depuis l'entry courante, ou les valeurs par défaut plugin SLOW 30/10 si l'entry est vierge) ;
+- les modifier sans avoir à re-ouvrir la configuration ni à passer par « Personnalisé » en premier ;
+- basculer sur **Personnalisé** et **appliquer immédiatement** ses valeurs (la garde `resolve_params(level, config)` ne lit ces clés que si `level == LEVEL_PERSONNALISE`, les niveaux nommés continuent d'utiliser leurs tables statiques).
 
-```python
-# Dans async_step_init, après la validation de user_input
-old_level = self._config_entry.data.get(CONF_LEVEL)
-new_level = user_input.get(CONF_LEVEL)
-if new_level == LEVEL_PERSONNALISE and old_level != LEVEL_PERSONNALISE:
-    # Injecte les valeurs du niveau précédent si l'utilisateur ne les a pas modifiées
-    if CONF_DT_MIN not in user_input:
-        user_input[CONF_DT_MIN] = DT_MIN.get(old_level, DEFAULT_DT_MIN)
-    if CONF_ERROR_THRESHOLD not in user_input:
-        user_input[CONF_ERROR_THRESHOLD] = ERROR_THRESHOLD.get(old_level, DEFAULT_ERROR_THRESHOLD)
-```
+Ce choix évite le piège de l'option « pré-remplir au switch » (qui nécessitait un submit vide puis une re-ouverture pour saisir les valeurs) et ne dépend pas de la sémantique « conditionnelle d'affichage » de l'UI HA, ce qui rend le formulaire prévisible.
 
-Le même mécanisme s'applique à la création d'une entrée dédiée via `async_step_thermostat_options`, où le niveau précédent est celui seedé par l'`entry` du core.
-
-Le cas où l'utilisateur reste sur `personnalise` et modifie les valeurs : les champs sont déjà dans le `user_input`, aucune injection n'a lieu.
-
-### 5. Schéma conditionnel
-
-`_options_schema` accepte un nouveau paramètre ou déduit de `defaults[CONF_LEVEL]` si les champs custom doivent apparaître :
+Le code est minimal : les deux champs sont ajoutés au `fields` par défaut de `_options_schema`, et le filtre `parameters_only` (entrée dédiée) conserve en plus de `CONF_LEVEL` les clés `CONF_DT_MIN` et `CONF_ERROR_THRESHOLD`.
 
 ```python
-if defaults.get(CONF_LEVEL) == LEVEL_PERSONNALISE:
-    fields[CONF_DT_MIN] = selector.NumberSelector(
-        selector.NumberSelectorConfig(min=5, max=120, unit_of_measurement="min")
-    )
-    fields[CONF_ERROR_THRESHOLD] = selector.NumberSelector(
-        selector.NumberSelectorConfig(min=1, max=50, step=0.5)
-    )
+# options flow (global et dédié)
+fields[CONF_DT_MIN] = vol.Optional(
+    CONF_DT_MIN, default=defaults.get(CONF_DT_MIN, DEFAULT_DT_MIN),
+)(selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=120, unit_of_measurement="min", mode="box")))
+fields[CONF_ERROR_THRESHOLD] = vol.Optional(
+    CONF_ERROR_THRESHOLD, default=defaults.get(CONF_ERROR_THRESHOLD, DEFAULT_ERROR_THRESHOLD),
+)(selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=50, step=0.5, mode="box")))
 ```
 
-Le comportement est statique par affichage : le formulaire recalculé est celui du niveau *au moment de l'affichage*, pas celui que le utilisateur choisira en cochant le select. Le sélecteur de niveau lui-même reste dans le formulaire ; les champs custom apparaissent si le niveau *enregistré* est déjà `personnalise`. Si l'utilisateur passe de `slow` à `personnalise` sans recharger, le premier submit enregistre le niveau `personnalise` avec les valeurs injectées par l'étape 4, et le formulaire suivant affiche les champs custom.
+La garde défensive `_clamp_numbers` reste en second rideau pour les soumissions programmatiques (l'UI `NumberSelector` rejette déjà toute valeur hors de `[5, 120]` / `[1, 50]`).
+
+Conséquences observables :
+
+- `vol.Optional(default=...)` **popule** les clefs `dt_min` / `error_threshold` dans l'entry même lorsque le niveau n'est pas `personnalise`. Les valeurs sont présentes mais ignorées par `resolve_params` tant que le niveau est nommé, ce qui est la même sémantique que la décision C1 déjà validée (Risque 2).
+- Un utilisateur peut donc stocker ses valeurs custom **avant** de basculer sur Personnalisé — comportement cohérent avec « les valeurs sont prêtes lorsqu'on les veut ».
+
+**Retrait** du pré-remplissage par injection (ancien paragraphe) : l'helper `_prefill_custom_params` et l'import `DT_MIN`/`ERROR_THRESHOLD` dans `config_flow.py` sont supprimés (le niveau nommé ne lit pas `config` et la sémantique « héritage du niveau précédent » est devenue inutile).
+
+### 5. Schéma non conditionnel sur le niveau
+
+Le schéma d'options est désormais **non conditionnel** sur le niveau : les deux `NumberSelector` font partie du `fields` par défaut. Le sélecteur de niveau reste dans le formulaire et le filtrage `parameters_only` (entrée dédiée) conserve les trois clés de détection (`CONF_LEVEL`, `CONF_DT_MIN`, `CONF_ERROR_THRESHOLD`), tout en excluant `CONF_STOP_MODE` / `CONF_ENABLED` (mémorisés par l'entité) et `CONF_VTHERM_UNIQUE_ID`.
+
+La conséquence est que le formulaire est identique à tous les niveaux : aucune logique d'injection au submit, aucune dépendance au niveau *au moment de l'affichage*.
 
 ### 6. Vocabulaire
 
@@ -142,7 +141,7 @@ Concrètement :
 
 ## Risques / Compromis
 
-**Risque 1 — Le formulaire n'affiche pas les champs au premier passage sur `personnalise`.** L'UI du sélecteur HA ne recharge pas le formulaire en direct quand le utilisateur change une option : le utilisateur devra soumettre une première fois (qui injecte les valeurs), puis le formulaire suivant affiche les champs. C'est acceptable : le comportement est cohérent avec le reste du flow (changement de mode d'arrêt qui n'a pas de champ conditionnel).
+**Risque 1 — Les valeurs stockées pour un niveau nommé.** `vol.Optional(default=...)` remplit systématiquement `entry.options` avec les clés `dt_min` / `error_threshold` même lorsque le niveau n'est pas `personnalise`. Le comportement est documenté (Risque 2 / décision C1) : les valeurs sont présentes mais ignorées par `resolve_params` tant que le niveau est nommé. Un utilisateur qui inspecte `entry.options` verra deux clés « inutilisées » pour un niveau `slow` ; c'est acceptable car cela évite de perdre les valeurs custom lors d'un passage successif à `personnalise`.
 
 **Risque 2 — Les champs `dt_min` et `error_threshold` restent dans `entry.options` après un retour de `personnalise` vers un niveau prédéfini.** C'est un compromis assumé (décision C1) : les clés persistent, `effective_config` les résout toujours, mais `resolve_params` ne les lit que quand `level == LEVEL_PERSONNALISE`. Aucun comportement indésirable, mais un utilisateur qui inspecte l'entry pourra y voir des clés apparemment « inutilisées » quand le niveau est `slow`.
 

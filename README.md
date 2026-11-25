@@ -67,10 +67,15 @@ The **Custom** level lets you set both values per thermostat:
 - `dt_min` in minutes, between **5** and **120**.
 - `error_threshold` in °C, between **1** and **50** (step 0.5).
 
-Out-of-bounds values are rejected by the form. When you switch to the Custom
-level, both fields are pre-filled from the previously selected level, or from
-the Slow values when that level has none. Values you did not change are kept
-when you switch away and back again.
+Both fields are **always visible** in the configuration form — whether the level
+is named or Custom. They are pre-filled from the current entry, or from the
+Slow values (30 / 10) when the entry does not yet carry custom values.
+
+- When the level is **Custom**, the submitted values are applied.
+- When the level is a named one, the algorithm ignores them and uses the static
+  table for that level; the values are still persisted in the entry so the user
+  does not have to re-enter them on a later switch back to Custom.
+- Out-of-bounds values are rejected by the form.
 
 The previous **None** level was removed: it duplicated the Slow behavior, and
 any stored legacy value now resolves to Slow (30 / 10).

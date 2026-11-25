@@ -19,8 +19,8 @@ The plugin SHALL resolve algorithm parameters through a single resolution step k
 
 #### Scenario: The personnalise level falls back on absent custom values
 
-- **WHEN** the resolved level is `personnalise` and the effective configuration does not carry one of the two custom values
-- **THEN** that value resolves to the named level that preceded the switch to `personnalise`, without failing the refresh
+- **WHEN** the resolved level is `personnalise` and the effective configuration does not carry one of the two custom values (e.g. a hand-rewritten entry that lost the keys, while the normal UI flow always populates them)
+- **THEN** that value resolves to the plugin defaults (Slow: 30 / 10), without failing the refresh
 
 #### Scenario: The personnalise level reads from the effective configuration
 
@@ -51,8 +51,9 @@ When no plugin entry exists, the config flow SHALL create global detection param
 
 - **WHEN** a user configures this phase-1 implementation with a named level
 - **THEN** explicit custom thresholds and durations are not required for that named level
-- **AND** when the user selects the `personnalise` level, the explicit minimum duration and error threshold fields are presented, pre-filled from the named level the user was selecting before the switch
-- **AND** saving these values makes them the detection parameters for that thermostat until the level is switched away
+- **AND** the explicit minimum duration and error threshold fields are **always visible** in the form, whatever the current level is
+- **AND** those fields are pre-filled from the entry (or the plugin defaults when the entry is empty)
+- **AND** the submitted values are only applied by the resolution step when the level is `personnalise`; at a named level the algorithm uses the static table for that level and ignores the custom values, which still persist in the entry
 
 ## ADDED Requirements
 

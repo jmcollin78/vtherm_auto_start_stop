@@ -25,8 +25,8 @@
 - [x] `manager.py` : dans `post_init`, passer `effective_config` à `algorithm.set_params(...)` au lieu de `algorithm.set_level(...)`. Mettre à jour `__init__` : construire l'algorithme avec les valeurs par défaut du plugin (SLOW).
 
 ### Config flow
-- [x] `config_flow.py` : `_options_schema` accepte `defaults` et insère sélecteur `NumberSelector` si `defaults[CONF_LEVEL] == LEVEL_PERSONNALISE`, avec `NumberSelectorConfig(min=5, max=120, unit_of_measurement="min")` pour `dt_min` et `NumberSelectorConfig(min=1, max=50, step=0.5)` pour `error_threshold`.
-- [x] `config_flow.py` : dans le traitement de submit (config et options flow), si `new_level == LEVEL_PERSONNALISE` et que le champ n'est pas dans `user_input`, injecter la valeur du niveau précédent (via `DT_MIN` / `ERROR_THRESHOLD`), sinon `DEFAULT_DT_MIN` / `DEFAULT_ERROR_THRESHOLD`.
+- [x] `config_flow.py` : `_options_schema` insère **en permanence** les sélecteurs `NumberSelector` (global ET dédié, quel que soit le niveau), avec `NumberSelectorConfig(min=5, max=120, unit_of_measurement="min")` pour `dt_min` et `NumberSelectorConfig(min=1, max=50, step=0.5)` pour `error_threshold`, pré-remplis depuis l'entry courante ou les défauts plugin.
+- [x] `config_flow.py` : retirer le pré-remplissage conditionnel au submit (helper `_prefill_custom_params` et l'injection depuis le niveau précédent) : il n'est plus nécessaire puisque les champs sont toujours affichés et toujours soumis.
 - [x] `config_flow.py` : valider les bornes au submit (l'intégration HA le fait déjà pour `NumberSelector`, mais ajouter une garde défensive si on veut un message d'erreur spécifique).
 
 ### Translations
@@ -43,9 +43,9 @@
 - [x] `test_setup.py` : ajouter un scénario complet : config entry dédié avec level `personnalise` et `dt_min=45` → la manager expose `auto_start_stop_dtmin` = 45.
 
 ### Config flow
-- [x] `test_config_flow.py` : ajouter un test du pré-remplissage : level `slow` (30/10) → au submit `level: personnalise`, l'entry résultante contient `dt_min: 30` et `error_threshold: 10`.
 - [x] `test_config_flow.py` : ajouter un test que les clés custom restent dans `entry.options` après un passage `personnalise → medium → personnalise`.
 - [x] `test_config_flow.py` : ajouter un test de validation : `dt_min: 3` et `dt_min: 200` sont refusés/clamped, `error_threshold: 0.5` et `60` idem.
+- [x] `test_config_flow.py` : ajouter un test du pré-remplissage : level `slow` (30/10) → les deux champs custom **sont toujours visibles** dans le formulaire d'options, quel que soit le niveau courant ; le submit en `personnalise` avec ces valeurs persiste dans l'entry.
 
 ### Intégration / compatibilité
 - [x] `test_entity_state.py` : ajouter un test : un thermostat en `personnalise` avec `dt_min=45`, `error_threshold=25` expose les attributs `auto_start_stop_level == "personnalise"`, `auto_start_stop_dtmin == 45`, `auto_start_stop_accumulated_error_threshold == 25`.
@@ -53,4 +53,4 @@
 
 ## Documentation
 - [x] `README.md` : ajouter une section « Niveaux » qui documente le niveau `personnalise` et ses bornes.
-- [x] `README.md` : documenter le comportement du pré-remplissage au switch.
+- [x] `README.md` : documenter le comportement des deux champs custom (toujours visibles, appliqués uniquement quand le niveau vaut « Personnalisé », valeurs persistées entre deux changements de niveau).

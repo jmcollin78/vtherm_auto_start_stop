@@ -43,7 +43,7 @@
     "step": {
       "init": {
         "title": "Paramètres du start/stop automatique",
-        "description": "Les paramètres de détection dédiés sont prioritaires sur les valeurs globales. Les valeurs initiales d'activation et de mode, lorsqu'elles sont affichées, concernent uniquement les nouvelles entités et ne réinitialisent jamais les états mémorisés.",
+        "description": "Les paramètres de détection dédiés sont prioritaires sur les valeurs globales. Les valeurs spécifiques ne sont utilisées que si le selecteur est sur 'Personnalisé'.",
         "data": {
           "auto_start_stop_level": "Niveau",
           "auto_start_stop_dtmin": "Durée minimum (minutes)",
