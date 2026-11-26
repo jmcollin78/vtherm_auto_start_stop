@@ -83,6 +83,13 @@ Writing a detection parameter SHALL NOT reset the accumulated deviation. The dev
 - **THEN** the new criteria apply to the deviation already accumulated
 - **AND** the deviation is not cleared
 
+#### Scenario: A faster level detects a stop on the next cycle
+
+- **WHEN** a thermostat sits at a slow level with its deviation saturated at that level's threshold, and the user selects a faster level
+- **THEN** the deviation is bounded to the faster level's threshold at the next cycle
+- **AND** the faster level's minimum duration is measured against the time elapsed since the last decision, not restarted
+- **AND** the stop is detected on that cycle, without waiting for a new accumulation period
+
 #### Scenario: An explicit target change still clears the delay
 
 - **WHEN** the thermostat's target temperature or preset changes

@@ -44,7 +44,9 @@ deviennent.
   critères de lecture appliqués à cette mesure, pas la mesure elle-même. Jeter
   l'accumulation à chaque ajustement obligeait l'utilisateur à attendre un cycle
   complet après chaque essai de réglage. La saturation au seuil courant borne
-  déjà une accumulation devenue trop grande.
+  déjà une accumulation devenue trop grande, et passer à un niveau plus rapide
+  peut donc déclencher une détection dès le cycle suivant — ce qui est le
+  résultat attendu, pas un effet de bord.
 - `available = False` est explicitement exclu comme mécanisme de contrôle : un
   service visant une entité indisponible est filtré en silence par Home
   Assistant. Un paramètre hors niveau personnalisé reste disponible et lisible.

@@ -256,6 +256,22 @@ bénéfice nul — la saturation fait déjà le travail.
 option. Rejetée : deux comportements à tester, à documenter et à maintenir pour
 un cas d'usage qui n'a pas été demandé.
 
+**Corollaire voulu** — le passage d'une valeur lente à une valeur plus rapide
+peut déclencher la détection dès le cycle suivant. C'est le comportement
+attendu, et il repose sur deux garde-fous qui se relâchent ensemble :
+
+1. `_accumulated_error` est déjà saturé à l'ancien seuil, donc au nouveau seuil
+   plus bas il reste au-delà : la condition de seuil est satisfaite d'emblée ;
+2. `_last_switch_date` n'est **pas** touché par `set_params()` (vérifié dans
+   `algorithm.py`), donc `minutes_since_switch` continue d'être mesuré depuis la
+   dernière décision réelle. Un `dt_min` plus court est donc immédiatement
+   satisfait lui aussi.
+
+Autrement dit : l'utilisateur qui choisit un niveau plus rapide demande
+explicitement une réaction plus rapide, et l'obtient sans attendre un nouveau
+cycle complet d'accumulation. C'est cohérent avec le principe de D11 — la mesure
+reste, seul le critère de lecture change.
+
 ## Risks / Trade-offs
 
 - **Perte des valeurs personnalisées au changement de niveau** → Assume et
@@ -277,11 +293,13 @@ un cas d'usage qui n'a pas été demandé.
   et test dédié sur les pas de `0.5`.
 - **Accumulation conservée à travers des réglages très différents** → Passer de
   `very_slow` (seuil 20) à `fast` (seuil 2) applique une intégrale déjà saturée à
-  20 sur un seuil de 2 : la décision peut tomber au premier cycle. C'est
-  physiquement défendable (l'écart a bien été observé) mais brutal. Mitigation :
-  la saturation borne l'accumulation au nouveau seuil dès le cycle suivant, et
-  `reset_switch_delay()` reste disponible pour repartir à zéro volontairement.
-  Le comportement est documenté dans la spec pour ne pas surprendre.
+  20 sur un seuil de 2 : la décision tombe au premier cycle. Ce n'est **pas** un
+  effet indésirable mais la conséquence directe et voulue du modèle : l'écart
+  avait été observé, et le nouveau réglage demande simplement une réaction plus
+  rapide. Mitigation : aucune n'est nécessaire ; le comportement est couvert par
+  le scénario `A faster level detects a stop on the next cycle`, qui vérifie les
+  deux garde-fous — la saturation au nouveau seuil, et le délai `dt_min` mesuré
+  depuis la dernière décision réelle et non redémarré.
 - **Compatibilité des ID historiques étendue par erreur** → Mitigation : les
   deux tables séparées de D9, et un test qui vérifie qu'aucune des trois
   nouvelles entités n'adopte d'ID hérité.

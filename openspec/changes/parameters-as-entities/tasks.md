@@ -74,6 +74,9 @@
   `set_params()` et vérifier par un test que changer le niveau, `dt_min` ou le
   seuil ne modifie pas l'accumulation, y compris en la ramenant d'un seuil de 20
   à un seuil de 2 (saturation au nouveau seuil).
+- [ ] 5.2c Vérifier que `set_params()` ne touche pas `_last_switch_date`, et par
+  un test que le passage de `very_slow` à `fast` avec une accumulation saturée
+  déclenche la détection au cycle suivant sans attendre un nouveau délai complet.
 - [ ] 5.3 Remplacer `effective_config()` par `is_covered()` dans `post_init()`
   et semer les paramètres depuis l'entrée quand aucune valeur restaurée
   n'existe ; vérifier que `pytest tests/test_manager.py` passe.
