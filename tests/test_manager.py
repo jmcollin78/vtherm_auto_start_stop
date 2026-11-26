@@ -21,6 +21,7 @@ from custom_components.vtherm_auto_start_stop.const import (
     DATA_MANAGERS,
     DOMAIN,
     LEVEL_FAST,
+    LEVEL_MEDIUM,
     LEVEL_PERSONNALISE,
     LEVEL_SLOW,
     MANAGER_ATTRIBUTES_KEY,
@@ -30,22 +31,30 @@ from custom_components.vtherm_auto_start_stop.const import (
     STOP_MODE_OFF,
 )
 from vtherm_api.const import EventType
+from custom_components.vtherm_auto_start_stop.algorithm import DT_MIN, ERROR_THRESHOLD
 from custom_components.vtherm_auto_start_stop.models import initial_control_defaults
 
 VT_UNIQUE_ID = "vtherm-uid-1"
 
 
 def install(manager_factory, thermostat, add_global_entry=None, **kwargs):
-    """Attach a manager to the thermostat, as the core would."""
+    """Attach a manager to the thermostat, as the core would.
+
+    ``post_init`` leaves the bridge empty on purpose: the five entities own the
+    seeding and the restore cascade. The helper therefore feeds the complete
+    restored set, exactly as the entities would.
+    """
     manager = manager_factory(thermostat)
     manager.post_init(thermostat.entry_infos)
     if manager.is_configured and not manager.controls_ready:
         entries = thermostat.hass.data[DOMAIN]["entries"]
-        values = initial_control_defaults(entries)
-        for entry in entries.values():
-            if entry.get("vtherm_unique_id") == thermostat.unique_id:
-                values.update({key: entry[key] for key in values if key in entry})
-        manager.restore_entity_state(values[CONF_ENABLED], values[CONF_STOP_MODE])
+        values = initial_control_defaults(entries, thermostat.unique_id)
+        manager.restore_entity_state(
+            values[CONF_ENABLED],
+            values[CONF_STOP_MODE],
+            values[CONF_DT_MIN],
+            values[CONF_ERROR_THRESHOLD],
+        )
     return manager
 
 
@@ -379,60 +388,33 @@ async def test_entity_state_is_reconciled(
     assert manager.stop_mode == STOP_MODE_DRY
 
 
-async def test_bootstrap_waits_for_both_controls_and_applies_mode_first(
-    manager_factory, thermostat, add_global_entry, monkeypatch
+async def test_refresh_is_a_no_op_before_the_controls_are_ready(
+    manager_factory, thermostat, add_global_entry
 ):
-    from custom_components.vtherm_auto_start_stop.registry import control_state
-
+    """Detection never runs before the controls supplied enable and stop mode."""
     add_global_entry(level=LEVEL_FAST, enabled=True)
-    state = control_state(thermostat.hass, thermostat.unique_id)
-    state.enabled = True
     manager = manager_factory(thermostat)
-    manager.post_init({})
-    manager.restore_state(
-        State(
-            thermostat.entity_id,
-            "off",
-            {
-                MANAGER_ATTRIBUTES_KEY: {
-                    ATTR_IS_STOP_DETECTED: True,
-                    ATTR_ACCUMULATED_ERROR: -4.5,
-                }
-            },
-        )
-    )
+    manager._configured = True
+    assert manager.controls_ready is False
     thermostat.current_temperature = 24
-    thermostat.last_temperature_slope = 6
     for _ in range(10):
         thermostat.advance(1)
         assert await manager.refresh_state() is False
-    assert manager.controls_ready is False
-    assert manager.enabled is False
-    assert manager.is_auto_stop_detected is False
-    assert manager._algorithm.accumulated_error == -4.5
     assert thermostat.refresh_requests == 0
-    original = manager.async_set_enabled
-
-    async def enable_after_mode(enabled):
-        assert manager.stop_mode == STOP_MODE_DRY
-        assert manager.controls_ready is True
-        await original(enabled)
-
-    monkeypatch.setattr(manager, "async_set_enabled", enable_after_mode)
-    state.stop_mode = STOP_MODE_DRY
-    await manager.async_initialize_controls(state.enabled, state.stop_mode)
-    assert manager.enabled is True
 
 
 def test_none_literal_fonds_to_the_default_level(
     manager_factory, thermostat, add_global_entry
 ):
-    """The removed ``none`` literal no longer disables the manager."""
+    """The removed ``none`` literal no longer disables the manager.
+
+    An unknown level seeds the SLOW pair, which derives back to SLOW.
+    """
     entry = add_global_entry(level=LEVEL_SLOW, enabled=True)
     entry[CONF_LEVEL] = "auto_start_stop_none"
     manager = install(manager_factory, thermostat)
     assert manager.is_configured is True
-    assert manager._algorithm.level == LEVEL_SLOW
+    assert manager.level == LEVEL_SLOW
 
 
 def test_personnalise_applies_custom_parameters(manager_factory, thermostat, fake_hass):
@@ -446,6 +428,170 @@ def test_personnalise_applies_custom_parameters(manager_factory, thermostat, fak
     }
     manager = install(manager_factory, thermostat)
     assert manager.is_configured is True
-    assert manager._algorithm.level == LEVEL_PERSONNALISE
-    assert manager._algorithm.dt_min == 45
-    assert manager._algorithm.accumulated_error_threshold == 25
+    assert manager.level == LEVEL_PERSONNALISE
+    assert manager.dt_min == 45
+    assert manager.error_threshold == 25
+
+
+# ---------------------------------------------------------------------------
+# Post-init behaviour (task 4.2)
+# ---------------------------------------------------------------------------
+
+
+async def test_post_init_registers_without_seeding_the_bridge(
+    manager_factory, thermostat, add_global_entry, monkeypatch
+):
+    """Task 4.2: the manager attaches at post_init but seeds nothing.
+
+    Seeding belongs to the five entities: a value already restored from an
+    entity state must always win over the entry seed, so the bridge has to stay
+    empty until the entities publish their own value.
+    """
+    from custom_components.vtherm_auto_start_stop.registry import control_state
+
+    add_global_entry(level=LEVEL_FAST, enabled=True)
+    manager = manager_factory(thermostat)
+    manager.post_init({})
+
+    assert manager.is_configured is True
+    assert manager.controls_ready is False
+    assert manager.enabled is False
+
+    state = control_state(thermostat.hass, thermostat.unique_id)
+    assert state.enabled is None
+    assert state.stop_mode is None
+    assert state.dt_min is None
+    assert state.error_threshold is None
+
+
+async def test_controls_initialisation_applies_the_mode_before_enabling(
+    manager_factory, thermostat, add_global_entry, monkeypatch
+):
+    """The mode must be known before detection is enabled."""
+    from custom_components.vtherm_auto_start_stop.registry import control_state
+
+    add_global_entry(level=LEVEL_FAST, enabled=False)
+    manager = manager_factory(thermostat)
+    manager.post_init({})
+    assert manager.enabled is False
+
+    original = manager.async_set_enabled
+    seen: list[str] = []
+
+    async def enable_after_mode(enabled):
+        seen.append(manager.stop_mode)
+        assert manager.controls_ready is True
+        await original(enabled)
+
+    monkeypatch.setattr(manager, "async_set_enabled", enable_after_mode)
+    state = control_state(thermostat.hass, thermostat.unique_id)
+    state.stop_mode = STOP_MODE_DRY
+    await manager.async_initialize_controls(True, STOP_MODE_DRY)
+
+    assert seen == [STOP_MODE_DRY]
+    assert manager.enabled is True
+    assert manager.stop_mode == STOP_MODE_DRY
+
+
+# ---------------------------------------------------------------------------
+# Parameter writes (tasks 3.4, 5.2)
+# ---------------------------------------------------------------------------
+
+
+async def test_apply_level_writes_both_parameters_atomically(
+    manager_factory, thermostat, add_global_entry
+):
+    """D5: selecting a level writes one coherent pair and publishes once."""
+    from custom_components.vtherm_auto_start_stop.registry import control_state
+
+    add_global_entry(level=LEVEL_SLOW, enabled=True)
+    manager = install(manager_factory, thermostat)
+    notifications: list[str] = []
+    original = manager._publish_update
+    manager._publish_update = lambda: (
+        notifications.append(manager.level),
+        original(),
+    )[1]
+
+    await manager.apply_level(LEVEL_FAST)
+
+    assert manager.level == LEVEL_FAST
+    assert manager.dt_min == DT_MIN[LEVEL_FAST]
+    assert manager.error_threshold == ERROR_THRESHOLD[LEVEL_FAST]
+    assert notifications == [LEVEL_FAST]
+    state = control_state(thermostat.hass, thermostat.unique_id)
+    assert state.level == LEVEL_FAST
+    assert state.dt_min == DT_MIN[LEVEL_FAST]
+    assert state.error_threshold == ERROR_THRESHOLD[LEVEL_FAST]
+
+
+async def test_apply_parameters_derives_the_level(
+    manager_factory, thermostat, add_global_entry
+):
+    """Writing an arbitrary pair derives ``personnalise``."""
+    add_global_entry(level=LEVEL_SLOW, enabled=True)
+    manager = install(manager_factory, thermostat)
+
+    await manager.apply_parameters(45, 25)
+
+    assert manager.dt_min == 45
+    assert manager.error_threshold == 25
+    assert manager.level == LEVEL_PERSONNALISE
+
+
+async def test_apply_parameters_derives_a_named_level_from_its_pair(
+    manager_factory, thermostat, add_global_entry
+):
+    """A pair matching a named level derives that level, never a stored label."""
+    add_global_entry(level=LEVEL_SLOW, enabled=True)
+    manager = install(manager_factory, thermostat)
+
+    await manager.apply_parameters(DT_MIN[LEVEL_MEDIUM], ERROR_THRESHOLD[LEVEL_MEDIUM])
+
+    assert manager.level == LEVEL_MEDIUM
+
+
+async def test_apply_parameters_does_not_notify_when_nothing_changed(
+    manager_factory, thermostat, add_global_entry
+):
+    """A no-op write does not wake the five entities."""
+    add_global_entry(level=LEVEL_FAST, enabled=True)
+    manager = install(manager_factory, thermostat)
+    count = 0
+    original = manager._publish_update
+
+    def count_publish():
+        nonlocal count
+        count += 1
+        original()
+
+    manager._publish_update = count_publish
+    await manager.apply_parameters(DT_MIN[LEVEL_FAST], ERROR_THRESHOLD[LEVEL_FAST])
+
+    assert count == 0
+
+
+async def test_parameter_change_updates_the_published_level(
+    manager_factory, thermostat, add_global_entry
+):
+    """Task 5.4: the published level follows a parameter write, no reload."""
+    add_global_entry(level=LEVEL_SLOW, enabled=True)
+    manager = install(manager_factory, thermostat)
+
+    attributes: dict = {}
+    manager.add_custom_attributes(attributes)
+    assert attributes[MANAGER_ATTRIBUTES_KEY][ATTR_LEVEL] == LEVEL_SLOW
+
+    await manager.apply_parameters(45, 25)
+    attributes = {}
+    manager.add_custom_attributes(attributes)
+    section = attributes[MANAGER_ATTRIBUTES_KEY]
+    assert section[ATTR_LEVEL] == LEVEL_PERSONNALISE
+    assert section[ATTR_DTMIN] == 45
+
+    await manager.apply_level(LEVEL_FAST)
+    attributes = {}
+    manager.add_custom_attributes(attributes)
+    section = attributes[MANAGER_ATTRIBUTES_KEY]
+    assert section[ATTR_LEVEL] == LEVEL_FAST
+    assert section[ATTR_DTMIN] == DT_MIN[LEVEL_FAST]

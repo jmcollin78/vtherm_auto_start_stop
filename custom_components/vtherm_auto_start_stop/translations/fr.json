@@ -4,29 +4,25 @@
     "step": {
       "global": {
         "title": "Valeurs par défaut du start/stop automatique",
-        "description": "Paramètres de détection partagés par tous les thermostats éligibles. L'activation et le mode d'arrêt initialisent uniquement les entités sans état mémorisé ; modifier ces valeurs ne réinitialise pas les entités existantes.",
+        "description": "Ces valeurs ne servent qu'à initialiser les entités d'un thermostat qui n'ont pas encore d'état mémorisé. Les paramètres de détection se règlent ensuite sur les entités du thermostat (niveau, durée minimum, seuil d'erreur).",
         "data": {
-          "auto_start_stop_level": "Niveau",
-          "auto_start_stop_dtmin": "Durée minimum (minutes)",
-          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée",
           "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
           "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
       },
       "thermostat": {
         "title": "Thermostat",
-        "description": "Sélectionnez un thermostat nécessitant des paramètres de détection différents. Son switch et son sélecteur mémorisent l'activation et le mode sans configuration dédiée.",
+        "description": "Sélectionnez un thermostat à couvrir par une configuration dédiée. Ses entités portent l'activation, le mode d'arrêt et les paramètres de détection.",
         "data": {
           "target_entity": "Thermostat"
         }
       },
       "thermostat_options": {
         "title": "Paramètres du thermostat",
-        "description": "Ces paramètres de détection remplacent les valeurs globales pour ce thermostat sans modifier son activation ni son mode d'arrêt mémorisés.",
+        "description": "Ces valeurs initialisent les entités du thermostat qui n'ont pas encore d'état mémorisé. Modifier cette configuration ne change pas les paramètres de détection déjà réglés sur les entités.",
         "data": {
-          "auto_start_stop_level": "Niveau",
-          "auto_start_stop_dtmin": "Durée minimum (minutes)",
-          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée"
+          "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
+          "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
       }
     },
@@ -43,11 +39,8 @@
     "step": {
       "init": {
         "title": "Paramètres du start/stop automatique",
-        "description": "Les paramètres de détection dédiés sont prioritaires sur les valeurs globales. Les valeurs spécifiques ne sont utilisées que si le selecteur est sur 'Personnalisé'.",
+        "description": "Ces valeurs initialisent les entités du thermostat qui n'ont pas encore d'état mémorisé. Les paramètres de détection en service se règlent sur les entités (niveau, durée minimum, seuil d'erreur), sans rechargement.",
         "data": {
-          "auto_start_stop_level": "Niveau",
-          "auto_start_stop_dtmin": "Durée minimum (minutes)",
-          "auto_start_stop_error_threshold": "Seuil d'erreur cumulée",
           "auto_start_stop_stop_mode": "Mode d'arrêt initial (nouvelles entités uniquement)",
           "enabled": "Activation initiale (nouvelles entités uniquement)"
         }
@@ -75,17 +68,35 @@
   "entity": {
     "switch": {
       "auto_start_stop_enable": {
-        "name": "Activer le start/stop automatique"
+        "name": "auto-start/stop activation"
       }
     },
     "select": {
       "auto_start_stop_stop_mode": {
-        "name": "Mode d'arrêt du start/stop automatique",
+        "name": "auto-start/stop mode d'arrêt",
         "state": {
           "off": "Arrêt",
           "fan_only": "Ventilation seule",
           "dry": "Déshumidification"
         }
+      },
+      "auto_start_stop_level": {
+        "name": "auto-start/stop niveau de détection",
+        "state": {
+          "auto_start_stop_very_slow": "Très lent",
+          "auto_start_stop_slow": "Lent",
+          "auto_start_stop_medium": "Moyen",
+          "auto_start_stop_fast": "Rapide",
+          "auto_start_stop_personnalise": "Personnalisé"
+        }
+      }
+    },
+    "number": {
+      "auto_start_stop_dtmin": {
+        "name": "auto-start/stop durée minimum avant arrêt"
+      },
+      "auto_start_stop_error_threshold": {
+        "name": "auto-start/stop seuil"
       }
     }
   },
@@ -95,6 +106,12 @@
     },
     "invalid_auto_start_stop_option": {
       "message": "Option de start/stop automatique non prise en charge : {option}."
+    },
+    "invalid_auto_start_stop_bound": {
+      "message": "Valeur refusée pour {entity_id} : {value} est hors des bornes autorisées ({min} à {max})."
+    },
+    "level_already_named": {
+      "message": "Le niveau est déjà « {level} » : sélectionner « Personnalisé » ne changerait rien. Modifiez d'abord une durée ou un seuil."
     },
     "missing_configuration": {
       "message": "La configuration du start/stop automatique n'existe plus."

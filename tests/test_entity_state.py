@@ -8,6 +8,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er, restore_state as rs
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from custom_components.vtherm_auto_start_stop.algorithm import DT_MIN, ERROR_THRESHOLD
 from custom_components.vtherm_auto_start_stop.const import (
     CONF_ENABLED,
     CONF_ENTITY_IDS_ADOPTED,
@@ -16,7 +17,10 @@ from custom_components.vtherm_auto_start_stop.const import (
     CONF_VTHERM_UNIQUE_ID,
     DATA_ENTRIES,
     DOMAIN,
+    ENTITY_DT_MIN_SUFFIX,
     ENTITY_ENABLE_SUFFIX,
+    ENTITY_ERROR_THRESHOLD_SUFFIX,
+    ENTITY_LEVEL_SUFFIX,
     ENTITY_STOP_MODE_SUFFIX,
     LEVEL_FAST,
     LEVEL_SLOW,
@@ -42,6 +46,41 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
     mock_restore_cache_with_extra_data,
 )
+
+#: The five controls of a thermostat, keyed by a stable short name.
+CONTROL_SUFFIXES = {
+    "switch": ENTITY_ENABLE_SUFFIX,
+    "stop_mode": ENTITY_STOP_MODE_SUFFIX,
+    "level": ENTITY_LEVEL_SUFFIX,
+    "dt_min": ENTITY_DT_MIN_SUFFIX,
+    "error_threshold": ENTITY_ERROR_THRESHOLD_SUFFIX,
+}
+
+#: The platform of each control, in the same order.
+CONTROL_PLATFORMS = {
+    "switch": "switch",
+    "stop_mode": "select",
+    "level": "select",
+    "dt_min": "number",
+    "error_threshold": "number",
+}
+
+
+def control_ids(hass, unique_id: str) -> dict[str, str | None]:
+    """Return the entity id of each control of a thermostat.
+
+    ``select`` is an alias of ``stop_mode`` so the many assertions written
+    against the two-control model keep addressing the stop-mode select.
+    """
+    registry = er.async_get(hass)
+    ids = {
+        name: registry.async_get_entity_id(
+            CONTROL_PLATFORMS[name], DOMAIN, f"{unique_id}_{suffix}"
+        )
+        for name, suffix in CONTROL_SUFFIXES.items()
+    }
+    ids["select"] = ids["stop_mode"]
+    return ids
 
 
 @pytest.fixture(autouse=True)
@@ -96,7 +135,9 @@ async def test_global_only_entities_do_not_create_or_modify_configurations(
             )
         )
     assert all(switches) and all(selects)
-    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 4
+    # One switch, one stop-mode select, one level select and two numbers per
+    # thermostat: five controls each, counted on the global entry.
+    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 10
     before_data, before_options = dict(entry.data), dict(entry.options)
     await hass.services.async_call(
         "select",
@@ -139,17 +180,7 @@ async def global_controls(hass, fake_api, monkeypatch):
     managers = attach_managers(hass, fake_api, cores)
     await hass.async_block_till_done()
     registry = er.async_get(hass)
-    ids = [
-        {
-            "switch": registry.async_get_entity_id(
-                "switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
-            ),
-            "select": registry.async_get_entity_id(
-                "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
-            ),
-        }
-        for core in cores
-    ]
+    ids = [control_ids(hass, core.unique_id) for core in cores]
     return entry, cores, managers, ids, reload
 
 
@@ -186,7 +217,7 @@ async def test_default_edits_initialize_only_new_entities(
     await hass.async_block_till_done()
     assert new.enabled is True and new.stop_mode == "fan_only"
     registry = er.async_get(hass)
-    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 6
+    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 15
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -203,12 +234,14 @@ async def test_default_edits_initialize_only_new_entities(
         entry, options={**entry.options, CONF_LEVEL: LEVEL_SLOW}
     )
     await hass.async_block_till_done()
-    assert {args.args[0] for args in reload.await_args_list} == {
-        core.entry_id for core in [*cores, core]
-    }
+    # A seed change never reloads a thermostat: the live controls keep their
+    # value and only uncovered thermostats would pick up a new seed.
+    reload.assert_not_awaited()
     for manager in restored:
         manager.post_init({})
-        assert manager._algorithm.level == LEVEL_SLOW
+        # The live level is not reset by a seed: it keeps the value the
+        # controls were initialised with.
+        assert manager._algorithm.level == LEVEL_FAST
     assert [(manager.enabled, manager.stop_mode) for manager in restored] == [
         (True, "dry"),
         (False, "off"),
@@ -275,7 +308,9 @@ async def test_ownership_handover_and_coverage_removal(hass, fake_api, global_co
     replacement = attach_managers(hass, fake_api, [cores[0]])[0]
     await hass.async_block_till_done()
     assert replacement.enabled is True and replacement.stop_mode == "dry"
-    assert replacement._algorithm.level == LEVEL_SLOW
+    # The dedicated entry no longer overrides the parameters: the restored
+    # entity values win, so the level stays the one the global seed produced.
+    assert replacement._algorithm.level == LEVEL_FAST
     assert all(
         registry.async_get(entity_id).id == original_rows[entity_id]
         for entity_id in ids[0].values()
@@ -304,7 +339,13 @@ async def test_global_addition_preserves_dedicated_entity_states(
     await hass.async_block_till_done()
     registry = er.async_get(hass)
     rows = er.async_entries_for_config_entry(registry, local.entry_id)
-    ids = {row.domain: row.entity_id for row in rows}
+    ids = {
+        name: registry.async_get_entity_id(
+            CONTROL_PLATFORMS[name], DOMAIN, f"{core.unique_id}_{suffix}"
+        )
+        for name, suffix in CONTROL_SUFFIXES.items()
+    }
+    ids["select"] = ids["stop_mode"]
     await hass.services.async_call(
         "select",
         "select_option",
@@ -326,7 +367,7 @@ async def test_global_addition_preserves_dedicated_entity_states(
     } == {row.id for row in rows}
     assert manager.enabled is True and manager.stop_mode == "dry"
     assert hass.states.get(ids["switch"]).state == "on"
-    assert hass.states.get(ids["select"]).state == "dry"
+    assert hass.states.get(ids["stop_mode"]).state == "dry"
     assert await hass.config_entries.async_remove(local.entry_id)
     await hass.async_block_till_done()
     manager.post_init({})
@@ -405,7 +446,7 @@ async def test_native_restoration_and_one_time_legacy_migration(
     stored = rs.async_get(hass).last_states
     serialized = [
         (stored[entity_id].state, stored[entity_id].extra_data.as_dict())
-        for entity_id in ids.values()
+        for entity_id in set(ids.values())
     ]
     mock_restore_cache_with_extra_data(hass, serialized)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -498,10 +539,12 @@ async def test_global_controls_retain_partial_historical_core_states(
     assert manager.enabled is (saved in ("switch", "both"))
     assert manager.stop_mode == ("dry" if saved in ("select", "both") else "off")
     registry = er.async_get(hass)
-    assert {
+    owned = {
         row.entity_id
         for row in er.async_entries_for_config_entry(registry, entry.entry_id)
-    } == set(ids.values())
+    }
+    assert set(ids.values()) <= owned
+    assert len(owned) == 5
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
 
 
@@ -615,7 +658,7 @@ async def test_global_discovery_excludes_initially_ineligible_thermostats(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     rows = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(rows) == 2
+    assert len(rows) == 5
     assert all(row.unique_id.startswith(f"{eligible.unique_id}_") for row in rows)
 
 
@@ -649,80 +692,161 @@ async def test_eligibility_changes_remove_controls_and_managers(
     assert all(hass.states.get(entity_id) is None for entity_id in ids[0].values())
     assert get_manager(hass, cores[0].unique_id) is None
     assert managers[0].is_configured is False
-    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 2
+    # Two thermostats, one of them no longer covered: five controls remain.
+    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 5
     runtime.has_valve_regulation = False
     runtime.entry_infos = dict(cores[0].data)
     assert factory.supports(runtime) is True
     manager = factory.create(runtime)
     manager.post_init(runtime.entry_infos)
     await hass.async_block_till_done()
-    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 4
+    assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 10
     assert manager.enabled is True and manager.stop_mode == "dry"
 
 
-# ---------------------------------------------------------------------------
-# Custom parameters (personnalise level) attribute exposure
-# ---------------------------------------------------------------------------
+async def test_end_to_end_seed_write_level_and_restart(hass, fake_api, monkeypatch):
+    """Task 7.1: seed, entity write, level selection and a restart."""
+    reload = AsyncMock(return_value=True)
+    monkeypatch.setattr(hass.config_entries, "async_reload", reload)
+    core = register_core_entry(hass, "chambre")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LEVEL: LEVEL_FAST, CONF_ENABLED: True, CONF_STOP_MODE: "off"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = attach_managers(hass, fake_api, [core])[0]
+    await hass.async_block_till_done()
+    ids = control_ids(hass, core.unique_id)
+
+    # 1. The entry seeds the two numbers from the Fast pair on first coverage.
+    assert manager.dt_min == DT_MIN[LEVEL_FAST]
+    assert manager.error_threshold == ERROR_THRESHOLD[LEVEL_FAST]
+    assert manager.level == LEVEL_FAST
+    assert float(hass.states.get(ids["dt_min"]).state) == DT_MIN[LEVEL_FAST]
+    assert (
+        float(hass.states.get(ids["error_threshold"]).state)
+        == ERROR_THRESHOLD[LEVEL_FAST]
+    )
+
+    # 2. Writing one number reclassifies the level and drives the manager.
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": ids["dt_min"], "value": 45},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert manager.dt_min == 45
+    assert manager.level == LEVEL_PERSONNALISE
+    assert hass.states.get(ids["level"]).state == LEVEL_PERSONNALISE
+
+    # 3. Selecting a named level writes both numbers at once.
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": ids["level"], "option": LEVEL_SLOW},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert manager.dt_min == DT_MIN[LEVEL_SLOW]
+    assert manager.error_threshold == ERROR_THRESHOLD[LEVEL_SLOW]
+    assert hass.states.get(ids["level"]).state == LEVEL_SLOW
+    assert float(hass.states.get(ids["dt_min"]).state) == DT_MIN[LEVEL_SLOW]
+    assert (
+        float(hass.states.get(ids["error_threshold"]).state)
+        == ERROR_THRESHOLD[LEVEL_SLOW]
+    )
+    # No configuration entry was written and no thermostat reloaded.
+    assert entry.data[CONF_LEVEL] == LEVEL_FAST
+    reload.assert_not_awaited()
+
+    # 4. A restart restores the entity-owned values, not the entry seed.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert DOMAIN not in hass.data
+    stored = rs.async_get(hass).last_states
+    serialized = [
+        (stored[entity_id].state, stored[entity_id].extra_data.as_dict())
+        for entity_id in set(ids.values())
+    ]
+    mock_restore_cache_with_extra_data(hass, serialized)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = attach_managers(hass, fake_api, [core])[0]
+    await hass.async_block_till_done()
+    assert manager.dt_min == DT_MIN[LEVEL_SLOW]
+    assert manager.error_threshold == ERROR_THRESHOLD[LEVEL_SLOW]
+    assert manager.level == LEVEL_SLOW
+    assert float(hass.states.get(ids["dt_min"]).state) == DT_MIN[LEVEL_SLOW]
+    assert (
+        float(hass.states.get(ids["error_threshold"]).state)
+        == ERROR_THRESHOLD[LEVEL_SLOW]
+    )
 
 
-async def test_personnalise_exposes_custom_attributes(hass, fake_api, monkeypatch):
-    """A personnalise thermostat exposes its custom level, dtmin and threshold."""
+async def test_legacy_level_is_not_reapplied_after_restoration(
+    hass, fake_api, monkeypatch
+):
+    """Task 7.2: once the entities have states, the legacy seed is inert.
+
+    The core entry still carries a legacy level, but the parameter entities have
+    saved states: a restart must restore those states, not re-seed from the
+    legacy level.
+    """
     monkeypatch.setattr(
         hass.config_entries, "async_reload", AsyncMock(return_value=True)
     )
-    core = register_core_entry(hass, "local")
+    core = register_core_entry(hass, "chambre")
+    hass.config_entries.async_update_entry(
+        core, data={**core.data, CONF_LEVEL: LEVEL_SLOW}
+    )
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
             CONF_VTHERM_UNIQUE_ID: core.unique_id,
-            CONF_LEVEL: LEVEL_PERSONNALISE,
-            CONF_STOP_MODE: "off",
             CONF_ENABLED: True,
-            CONF_DT_MIN: 45,
-            CONF_ERROR_THRESHOLD: 25,
+            CONF_STOP_MODE: "off",
         },
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-
     manager = attach_managers(hass, fake_api, [core])[0]
     await hass.async_block_till_done()
+    ids = control_ids(hass, core.unique_id)
 
-    attributes: dict = {}
-    manager.add_custom_attributes(attributes)
-    section = attributes["auto_start_stop_manager"]
-    assert section["auto_start_stop_level"] == LEVEL_PERSONNALISE
-    assert section["auto_start_stop_dtmin"] == 45
-    assert section["auto_start_stop_accumulated_error_threshold"] == 25
-
-
-async def test_named_levels_keep_the_same_attribute_names(hass, fake_api, monkeypatch):
-    """Naming is unchanged for the named levels: no dtmin/threshold regression."""
-    monkeypatch.setattr(
-        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    # The user moves the two parameters off every named pair.
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": ids["dt_min"], "value": 45},
+        blocking=True,
     )
-    core = register_core_entry(hass, "local")
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            CONF_VTHERM_UNIQUE_ID: core.unique_id,
-            CONF_LEVEL: LEVEL_SLOW,
-            CONF_STOP_MODE: "off",
-            CONF_ENABLED: True,
-        },
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": ids["error_threshold"], "value": 25},
+        blocking=True,
     )
-    entry.add_to_hass(hass)
+    await hass.async_block_till_done()
+    assert manager.level == LEVEL_PERSONNALISE
+
+    # A restart restores the entity states, so the legacy slow level does not
+    # come back.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    stored = rs.async_get(hass).last_states
+    serialized = [
+        (stored[entity_id].state, stored[entity_id].extra_data.as_dict())
+        for entity_id in set(ids.values())
+    ]
+    mock_restore_cache_with_extra_data(hass, serialized)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-
     manager = attach_managers(hass, fake_api, [core])[0]
     await hass.async_block_till_done()
-
-    attributes: dict = {}
-    manager.add_custom_attributes(attributes)
-    section = attributes["auto_start_stop_manager"]
-    # SLOW named level keeps its tabulated values and the stable attribute names.
-    assert section["auto_start_stop_level"] == LEVEL_SLOW
-    assert section["auto_start_stop_dtmin"] == 30
-    assert section["auto_start_stop_accumulated_error_threshold"] == 10
+    assert manager.dt_min == 45
+    assert manager.error_threshold == 25
+    assert manager.level == LEVEL_PERSONNALISE

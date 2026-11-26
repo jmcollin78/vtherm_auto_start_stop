@@ -157,13 +157,32 @@ ATTR_STOP_MODE = "auto_start_stop_stop_mode"
 
 PLATFORM_SWITCH = "switch"
 PLATFORM_SELECT = "select"
-PLATFORMS = [PLATFORM_SWITCH, PLATFORM_SELECT]
+PLATFORM_NUMBER = "number"
+PLATFORMS = [PLATFORM_SWITCH, PLATFORM_SELECT, PLATFORM_NUMBER]
 
 #: Stable plugin switch unique-id suffix.
 ENTITY_ENABLE_SUFFIX = "auto_start_stop_enable"
 
-#: Select unique-id suffix (appended to the thermostat unique id).
+#: Select unique-id suffix of the stop mode (appended to the thermostat id).
 ENTITY_STOP_MODE_SUFFIX = "auto_start_stop_stop_mode"
+
+#: Select unique-id suffix of the derived level preset.
+ENTITY_LEVEL_SUFFIX = "auto_start_stop_level"
+
+#: Number unique-id suffix of the minimum detection duration, in minutes.
+ENTITY_DT_MIN_SUFFIX = "auto_start_stop_dtmin"
+
+#: Number unique-id suffix of the accumulated-error threshold.
+ENTITY_ERROR_THRESHOLD_SUFFIX = "auto_start_stop_error_threshold"
+
+#: Bound of the minimum-duration entity, in minutes.
+DT_MIN_MIN_VALUE = 5
+DT_MIN_MAX_VALUE = 120
+
+#: Bound of the error-threshold entity.
+ERROR_THRESHOLD_MIN_VALUE = 1
+ERROR_THRESHOLD_MAX_VALUE = 50
+ERROR_THRESHOLD_STEP = 0.5
 
 # ---------------------------------------------------------------------------
 # Internal data keys (``hass.data[DOMAIN]``)

@@ -29,7 +29,7 @@ from .const import (
     THERMOSTAT_TYPE_CLIMATE,
 )
 from .manager import AutoStartStopManager
-from .models import effective_config
+from .models import is_covered
 from .registry import async_remove_controls, get_manager
 
 if TYPE_CHECKING:
@@ -106,10 +106,9 @@ class AutoStartStopManagerFactory:
             thermostat.unique_id
         )
         entries = self._hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {})
-        config = effective_config(entries, thermostat.unique_id)
-        if config is None:
+        if not is_covered(entries, thermostat.unique_id):
             _LOGGER.debug(
-                "%s - auto start/stop not attached: no effective configuration",
+                "%s - auto start/stop not attached: no covering configuration",
                 thermostat.name,
             )
             return False

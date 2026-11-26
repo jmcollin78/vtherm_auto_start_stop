@@ -16,13 +16,20 @@ from custom_components.vtherm_auto_start_stop.const import (
     DATA_MANAGERS,
     DOMAIN,
     LEVEL_FAST,
+    LEVEL_PERSONNALISE,
+    LEVEL_SLOW,
+    LEVELS,
     MANAGER_ATTRIBUTES_KEY,
     STOP_MODE_DRY,
     STOP_MODE_FAN_ONLY,
     STOP_MODE_OFF,
 )
+from custom_components.vtherm_auto_start_stop.algorithm import DT_MIN, ERROR_THRESHOLD
 from custom_components.vtherm_auto_start_stop.manager import AutoStartStopManager
-from custom_components.vtherm_auto_start_stop.select import AutoStartStopStopModeSelect
+from custom_components.vtherm_auto_start_stop.select import (
+    AutoStartStopLevelSelect,
+    AutoStartStopStopModeSelect,
+)
 from tests.conftest import FakeThermostat
 
 
@@ -45,7 +52,12 @@ async def selection(hass, monkeypatch):
     thermostat = FakeThermostat(hass, "thermostat")
     manager = AutoStartStopManager(thermostat, hass)
     manager.post_init({})
-    manager.restore_entity_state(False, STOP_MODE_DRY)
+    manager.restore_entity_state(
+        False,
+        STOP_MODE_DRY,
+        DT_MIN[LEVEL_FAST],
+        ERROR_THRESHOLD[LEVEL_FAST],
+    )
     entity = AutoStartStopStopModeSelect(hass, entry, thermostat.unique_id)
     entity.hass = hass
     entity.entity_id = "select.auto_start_stop"
@@ -224,3 +236,97 @@ async def test_missing_entry_is_reported_without_changing_runtime(
         await entity.async_select_option(STOP_MODE_OFF)
     assert manager.enabled is False
     assert manager.stop_mode == STOP_MODE_DRY
+
+
+# ---------------------------------------------------------------------------
+# Level selector (tasks 2.1, 2.2, 2.3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def level_selection(selection, hass, monkeypatch):
+    """The level selector, attached to the same manager as the stop-mode one."""
+    from custom_components.vtherm_auto_start_stop.select import (
+        AutoStartStopLevelSelect,
+    )
+
+    entry, thermostat, manager, _ = selection
+    entity = AutoStartStopLevelSelect(hass, entry, thermostat.unique_id)
+    entity.hass = hass
+    entity.entity_id = "select.auto_start_stop_level"
+    monkeypatch.setattr(entity, "async_write_ha_state", Mock())
+    await entity.async_added_to_hass()
+    yield entity
+    await entity.async_will_remove_from_hass()
+
+
+def test_level_options_are_the_five_levels(level_selection):
+    """The selector offers every level, the custom label included."""
+    assert level_selection.options == list(LEVELS)
+
+
+def test_level_reads_the_derived_pair(level_selection, selection):
+    """The current option is derived, never a stored label."""
+    _, _, manager, _ = selection
+    assert level_selection.current_option == manager.level
+    assert level_selection.current_option == LEVEL_FAST
+
+
+async def test_selecting_a_named_level_writes_both_parameters(
+    level_selection, selection
+):
+    """Task 2.2: one selection, one coherent pair, one notification."""
+    _, _, manager, _ = selection
+    published: list[str] = []
+    original = manager._publish_update
+    manager._publish_update = lambda: (published.append(manager.level), original())[1]
+
+    await level_selection.async_select_option(LEVEL_SLOW)
+
+    assert manager.level == LEVEL_SLOW
+    assert manager.dt_min == DT_MIN[LEVEL_SLOW]
+    assert manager.error_threshold == ERROR_THRESHOLD[LEVEL_SLOW]
+    assert published == [LEVEL_SLOW]
+    assert level_selection.current_option == LEVEL_SLOW
+
+
+async def test_selecting_personnalise_on_a_named_level_is_refused(
+    level_selection, selection
+):
+    """Task 2.3: selecting the custom label never changes anything."""
+    _, _, manager, _ = selection
+    assert manager.level == LEVEL_FAST
+    with pytest.raises(ServiceValidationError):
+        await level_selection.async_select_option(LEVEL_PERSONNALISE)
+    assert manager.level == LEVEL_FAST
+    assert manager.dt_min == DT_MIN[LEVEL_FAST]
+
+
+async def test_personnalise_is_a_no_op_when_already_custom(level_selection, selection):
+    """On a custom pair, re-selecting the custom label simply confirms it."""
+    _, _, manager, _ = selection
+    await manager.apply_parameters(45, 25)
+    assert manager.level == LEVEL_PERSONNALISE
+    await level_selection.async_select_option(LEVEL_PERSONNALISE)
+    assert manager.level == LEVEL_PERSONNALISE
+    assert manager.dt_min == 45
+
+
+@pytest.mark.parametrize("option", ["bad_level", "", "auto_start_stop_none"])
+async def test_unknown_level_option_is_refused(level_selection, selection, option):
+    _, _, manager, _ = selection
+    before = manager.level
+    with pytest.raises(ServiceValidationError):
+        await level_selection.async_select_option(option)
+    assert manager.level == before
+
+
+async def test_level_selection_without_a_manager_is_reported(
+    level_selection, selection, hass
+):
+    """An orphaned selector raises instead of silently doing nothing."""
+    _, _, manager, _ = selection
+    hass.data[DOMAIN][DATA_MANAGERS].clear()
+    with pytest.raises(ServiceValidationError):
+        await level_selection.async_select_option(LEVEL_SLOW)
+    assert manager.level == LEVEL_FAST
