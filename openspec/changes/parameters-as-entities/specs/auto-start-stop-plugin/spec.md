@@ -30,7 +30,7 @@ Each covered thermostat SHALL expose its detection parameters as writable Home A
 
 ### Requirement: Level derived from the parameters
 
-The level SHALL be a preset label derived from the two parameters, not a stored source of truth. It SHALL read as a named level when the pair equals that level's values, and as `personnalise` otherwise. Selecting a named level SHALL write both parameters atomically.
+The level SHALL be a preset label derived from the two parameters, not a stored source of truth. It SHALL read as a named level when the pair equals that level's values, and as `personnalise` otherwise. Selecting a named level SHALL write both parameters as one coherent change.
 
 #### Scenario: An unchanged pair reads as its named level
 
@@ -47,13 +47,13 @@ The level SHALL be a preset label derived from the two parameters, not a stored 
 - **WHEN** a user selects a named level
 - **THEN** the minimum duration and error threshold are both set to that level's values
 - **AND** the level preset reads as that level
-- **AND** the accumulated deviation is reset exactly once for the change
+- **AND** all five controls reflect the change together, with no intermediate state visible
 
-#### Scenario: Writing one parameter reclassifies the level without resetting twice
+#### Scenario: Writing one parameter reclassifies the level
 
 - **WHEN** a user writes a single parameter that no longer matches the current named level
 - **THEN** the level preset reads as `personnalise`
-- **AND** the accumulated deviation is reset exactly once for the change
+- **AND** all five controls reflect the change together, with no intermediate state visible
 
 #### Scenario: Leaving personnalise discards the custom values
 
@@ -61,70 +61,33 @@ The level SHALL be a preset label derived from the two parameters, not a stored 
 - **THEN** the custom minimum duration and error threshold are replaced by that level's values
 - **AND** the previous custom values are not retained anywhere
 
-### Requirement: Configuration defaults initialize entities only
+### Requirement: Parameter changes preserve the accumulated deviation
 
-The configuration entry SHALL hold only a thermostat's coverage and initial seed values. Its enable, stop-mode, minimum-duration, error-threshold and level defaults SHALL initialize entities that have no saved state, and later changes to those defaults SHALL NOT overwrite existing entity states. Detection parameters SHALL therefore change through the parameter entities, never through the entry.
+Writing a detection parameter SHALL NOT reset the accumulated deviation. The deviation measures an observed temperature gap; the parameters are reading criteria applied to it, so changing a criterion SHALL NOT discard the measurement. Only an explicit user change of the target or the preset SHALL clear the delay.
 
-#### Scenario: New controls use current initialization defaults
+#### Scenario: A parameter write leaves the accumulation intact
 
-- **WHEN** an eligible thermostat has no saved control states and is first covered by the global configuration
-- **THEN** its controls start with the current initialization defaults, restricted to supported stop modes
+- **WHEN** a user writes the minimum duration or the error threshold between two detection cycles
+- **THEN** the accumulated deviation keeps the value it had before the write
+- **AND** the detection decision at the next cycle uses it
 
-#### Scenario: Changed defaults do not reset existing controls
+#### Scenario: Tuning a threshold does not restart the observation
 
-- **WHEN** existing controls have saved states and the entry's enable, stop-mode or detection defaults are changed
-- **THEN** existing entity states are retained, including after reload and restart
-- **AND** eligible thermostats added later without saved states use the new defaults
+- **WHEN** a user adjusts a parameter several times in a row while a stop is being approached
+- **THEN** each write leaves the accumulated deviation intact
+- **AND** the approach is not restarted by any of them
 
-#### Scenario: Detection parameters are no longer inherited
+#### Scenario: A new level applies to the existing observation
 
-- **WHEN** an eligible thermostat inherits coverage from the global configuration
-- **THEN** its detection parameters come from its own entities, seeded once from the entry
-- **AND** changing the global entry's detection defaults later does not change the parameters of thermostats that already have entity states
+- **WHEN** a user selects a named level whose values differ from the current parameters
+- **THEN** the new criteria apply to the deviation already accumulated
+- **AND** the deviation is not cleared
 
-#### Scenario: Changing a parameter entity does not reload a thermostat
+#### Scenario: An explicit target change still clears the delay
 
-- **WHEN** a user writes a detection parameter for a covered thermostat
-- **THEN** no Versatile Thermostat entry is reloaded and no other thermostat is affected
-
-### Requirement: Parameter resolution from entities
-
-The manager SHALL read its minimum duration and error threshold from the thermostat's parameter entities, falling back to the current level's table value when an entity is missing or unparsable. An unknown or missing level SHALL resolve to the default parameters without failing the refresh.
-
-#### Scenario: A known level resolves to its parameters
-
-- **WHEN** the level preset reads as one of the named levels
-- **THEN** the manager uses that level's minimum duration and threshold
-
-#### Scenario: Personnalise uses the entity values
-
-- **WHEN** the level preset reads as `personnalise`
-- **THEN** the manager uses the exact values carried by the two parameter entities
-
-#### Scenario: A missing entity falls back on the level table
-
-- **WHEN** a parameter entity is missing or its state cannot be parsed
-- **THEN** that parameter resolves to the current level's table value without failing the refresh
-
-#### Scenario: An unknown level is handled
-
-- **WHEN** the level preset reads a value that is neither a named level nor `personnalise`
-- **THEN** the manager uses the default parameters without failing the refresh
-
-### Requirement: Parameter authorization is not availability
-
-A parameter entity SHALL remain available while its thermostat is covered. Refusing a write SHALL be done with an explicit error, never by making the entity unavailable, because Home Assistant silently drops service calls that target an unavailable entity.
-
-#### Scenario: A parameter entity is always available while covered
-
-- **WHEN** a thermostat is covered by the plugin, regardless of its enable state or current level
-- **THEN** its parameter entities report an available state
-
-#### Scenario: An out-of-bounds write is refused explicitly
-
-- **WHEN** a user writes a value outside the entity's declared range
-- **THEN** the write is refused with an explicit error naming the accepted range
-- **AND** the entity keeps its previous value
+- **WHEN** the thermostat's target temperature or preset changes
+- **THEN** the switch delay is cleared as before
+- **AND** the accumulated deviation is still not reset
 
 ## MODIFIED Requirements
 

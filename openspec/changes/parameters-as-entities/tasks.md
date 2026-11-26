@@ -60,16 +60,20 @@
   même signal `SIGNAL_MANAGER_UPDATED` ; vérifier qu'une sélection de niveau met
   à jour les trois entités en une seule notification.
 
-## 5. Manager : opérations atomiques
+## 5. Manager : paramètres sans effet de bord
 
 - [ ] 5.1 Implémenter `apply_level(level)` dans le manager : écrire les deux
-  paramètres dans `ControlState`, appeler `set_params()` une seule fois, publier
-  une seule notification ; vérifier par un test que `_accumulated_error` n'est
-  remis à zéro qu'une fois.
+  paramètres dans `ControlState`, mettre à jour l'algorithme, publier une seule
+  notification ; vérifier qu'une sélection de niveau ne produit qu'une
+  notification et que l'accumulation est inchangée.
 - [ ] 5.2 Implémenter `apply_parameters(dt_min, error_threshold)` : dériver le
-  niveau via `derive_level()`, appeler `set_params()` une seule fois, publier une
-  seule notification ; vérifier qu'écrire un seul paramètre ne réinitialise
-  qu'une fois.
+  niveau via `derive_level()`, mettre à jour l'algorithme, publier une seule
+  notification ; vérifier qu'écrire un seul paramètre laisse
+  `_accumulated_error` intact.
+- [ ] 5.2b Supprimer la remise à zéro de `_accumulated_error` dans
+  `set_params()` et vérifier par un test que changer le niveau, `dt_min` ou le
+  seuil ne modifie pas l'accumulation, y compris en la ramenant d'un seuil de 20
+  à un seuil de 2 (saturation au nouveau seuil).
 - [ ] 5.3 Remplacer `effective_config()` par `is_covered()` dans `post_init()`
   et semer les paramètres depuis l'entrée quand aucune valeur restaurée
   n'existe ; vérifier que `pytest tests/test_manager.py` passe.

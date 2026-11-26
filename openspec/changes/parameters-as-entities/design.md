@@ -22,6 +22,8 @@ Voir `proposal.md` — Why pour la motivation.
   d'initialisation.
 - `algorithm.AutoStartStopDetectionAlgorithm.set_params()` remet
   `_accumulated_error` à zéro **quand le niveau ou les paramètres changent**.
+  C'est le comportement actuel, et c'est précisément ce que ce change supprime
+  (voir D11).
 - `__init__._async_update_options()` déclenche `_reload_thermostats()`, qui
   appelle `async_reload` sur chaque entrée Versatile Thermostat.
 
@@ -39,7 +41,8 @@ Deux contraintes dures du modèle cible :
 - Faire des trois paramètres des entités, sans changer le contrat de délégation
   ni les attributs publiés.
 - Garantir qu'une écriture de paramètre ne recharge aucun thermostat.
-- Garantir qu'un changement de niveau ne réinitialise l'accumulation qu'une fois.
+- Garantir qu'une écriture de paramètre ne réinitialise pas l'accumulation, et
+  qu'un changement de niveau reste une opération unique et cohérente.
 - Sérialiser la migration d'une installation existante sans perte de réglage.
 
 **Non-Goals:**
@@ -96,32 +99,36 @@ la vérité, en réécrivant les `number` à chaque sélection. Rejetée : un
 utilisateur qui écrit `dt_min = 20` obtiendrait un niveau incohérent avec ses
 paramètres, ou verrait sa valeur écrasée.
 
-### D3 — `apply_level()` est atomique et vit dans le manager
+### D3 — `apply_level()` est une écriture cohérente, sans effet de bord
 
 Sélectionner un niveau nommé doit écrire deux entités. Fait naïvement, chaque
-écriture déclenche `set_params()` et donc une remise à zéro de
-`_accumulated_error`, et l'état intermédiaire (un paramètre neuf, l'autre ancien)
-est visible.
+écriture déclencherait deux passages par le manager, et l'état intermédiaire (un
+paramètre neuf, l'autre ancien) serait visible des entités.
 
 Le manager expose donc une opération unique :
 
 ```
-apply_level(level)   # écrit dt_min + threshold, puis set_params() une fois
+apply_level(level)   # écrit dt_min + threshold, puis publie une fois
 ```
 
-Elle écrit `ControlState` (les deux paramètres et le niveau), puis appelle
-`set_params()` **une seule fois** avec le couple final, puis publie une seule
-notification `SIGNAL_MANAGER_UPDATED`. Les entités écoutent ce signal et
-republient leur état : elles ne s'écrivent jamais entre elles.
+Elle écrit `ControlState` (les deux paramètres et le niveau), met à jour les
+paramètres de l'algorithme, puis publie **une seule** notification
+`SIGNAL_MANAGER_UPDATED`. Les entités écoutent ce signal et republient leur
+état : elles ne s'écrivent jamais entre elles.
 
 Les entités `number` passent par un chemin symétrique,
 `apply_parameters(dt_min, error_threshold)`, qui recalcule le niveau dérivé et
-appelle `set_params()` une fois.
+publie une seule fois.
+
+D3 ne porte **plus** sur la réinitialisation de l'accumulation : elle n'a plus
+lieu du tout (voir D11). L'atomicité ne sert donc plus qu'à garantir une vue
+cohérente des cinq entités, pas à contenir un effet de bord.
 
 *Alternative écartée* : laisser `select.async_select_option()` écrire les deux
 entités `number` par `async_set_value`. Rejetée : deux cycles de restauration,
-deux `set_params()`, et un couplage entité → entité que le modèle actuel évite
-déjà (les entités ne se parlent que par le manager et le dispatcher).
+deux passages par le manager, et un couplage entité → entité que le modèle
+actuel évite déjà (les entités ne se parlent que par le manager et le
+dispatcher).
 
 ### D4 — La porte de couverture se sépare de la résolution
 
@@ -205,6 +212,50 @@ historique en adoption silencieuse d'IDs arbitraires.
 conserve un cache du niveau courant, recalculé à chaque `apply_level()` /
 `apply_parameters()`, pour ne pas dériver à chaque lecture d'attribut.
 
+### D11 — Changer un paramètre ne réinitialise plus l'accumulation
+
+`set_params()` remet aujourd'hui `_accumulated_error` à zéro dès que le niveau
+ou le couple change. Ce comportement est supprimé : changer un paramètre ne
+touche plus à l'intégrale.
+
+Justification : `_accumulated_error` est l'intégrale de l'écart
+`target - current` pondérée par le temps. Elle mesure une **observation
+physique** du comportement du thermostat, pas un réglage. `dt_min` et le seuil
+sont des **critères de lecture** appliqués à cette observation. Changer un
+critère ne change pas ce qui s'est passé dans la pièce, donc jeter la mesure est
+une perte d'information, pas une précaution.
+
+Conséquences concrètes, toutes favorables :
+
+- l'utilisateur peut tâtonner sur ses seuils sans repartir de zéro à chaque
+  essai, ce qui est le geste naturel quand on cherche le bon réglage ;
+- un `dt_min` réduit prend effet immédiatement sur une accumulation déjà
+  constituée, au lieu d'imposer une attente complète du nouveau délai ;
+- une écriture de paramètre devient une opération sans effet de bord : aucune
+  remise à zéro à sérialiser, donc D3 n'a plus à protéger qu'une vue cohérente.
+
+Effet conservé : la saturation. `_accumulated_error` est déjà borné à
+`±error_threshold` à chaque cycle. Abaisser le seuil borne donc l'accumulation
+existante au nouveau seuil au cycle suivant, sans la détruire. C'est le
+comportement correct : la mesure reste, son échelle se resserre.
+
+Ce qui reste réinitialisé, et pourquoi :
+
+- `reset_switch_delay()` (délai anti-rebond après un changement de consigne ou
+  de préréglage thermique) : c'est une décision *explicite* de l'utilisateur sur
+  la consigne, pas un réglage de détection. Inchangé.
+- `restore()` au redémarrage : inchangé, il restaure au contraire
+  l'accumulation.
+
+*Alternative écartée* : ne pas réinitialiser mais repartir d'une accumulation
+mise à l'échelle du nouveau seuil (rapport `nouveau / ancien`). Rejetée :
+invente une donnée qui n'a pas été mesurée, et complique le modèle pour un
+bénéfice nul — la saturation fait déjà le travail.
+
+*Alternative écartée* : conserver la réinitialisation et l'exposer comme une
+option. Rejetée : deux comportements à tester, à documenter et à maintenir pour
+un cas d'usage qui n'a pas été demandé.
+
 ## Risks / Trade-offs
 
 - **Perte des valeurs personnalisées au changement de niveau** → Assume et
@@ -224,6 +275,13 @@ conserve un cache du niveau courant, recalculé à chaque `apply_level()` /
 - **Dérivation flottante** → `30.0` vs `30` ou un arrondi de `number` pourrait
   empêcher la reconnaissance d'un niveau nommé. Mitigation : tolérance explicite
   et test dédié sur les pas de `0.5`.
+- **Accumulation conservée à travers des réglages très différents** → Passer de
+  `very_slow` (seuil 20) à `fast` (seuil 2) applique une intégrale déjà saturée à
+  20 sur un seuil de 2 : la décision peut tomber au premier cycle. C'est
+  physiquement défendable (l'écart a bien été observé) mais brutal. Mitigation :
+  la saturation borne l'accumulation au nouveau seuil dès le cycle suivant, et
+  `reset_switch_delay()` reste disponible pour repartir à zéro volontairement.
+  Le comportement est documenté dans la spec pour ne pas surprendre.
 - **Compatibilité des ID historiques étendue par erreur** → Mitigation : les
   deux tables séparées de D9, et un test qui vérifie qu'aucune des trois
   nouvelles entités n'adopte d'ID hérité.

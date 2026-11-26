@@ -37,8 +37,14 @@ deviennent.
 - Le `select` de niveau devient un **préréglage** : le choisir écrit les deux
   paramètres puis publie l'étiquette dérivée. Il n'est plus une source de vérité.
 - Le manager devient la **source unique de vérité** ; les entités en sont des
-  vues. Changer de niveau est une opération **atomique** : une seule
-  réinitialisation de l'accumulation, jamais deux.
+  vues. Changer de niveau met les cinq contrôles à jour d'un seul geste, sans
+  état intermédiaire visible.
+- **Changer un paramètre ne réinitialise plus la somme des erreurs.** Elle mesure
+  un écart de température réellement observé ; `dt_min` et le seuil sont des
+  critères de lecture appliqués à cette mesure, pas la mesure elle-même. Jeter
+  l'accumulation à chaque ajustement obligeait l'utilisateur à attendre un cycle
+  complet après chaque essai de réglage. La saturation au seuil courant borne
+  déjà une accumulation devenue trop grande.
 - `available = False` est explicitement exclu comme mécanisme de contrôle : un
   service visant une entité indisponible est filtré en silence par Home
   Assistant. Un paramètre hors niveau personnalisé reste disponible et lisible.
@@ -76,17 +82,17 @@ dans l'entrée du thermostat. Son comportement observable ne bouge pas.
 
 **Code** — `custom_components/vtherm_auto_start_stop/` :
 
-| Fichier | Nature |
-| --- | --- |
-| `number.py` | nouveau : deux entités `dt_min` et `error_threshold` |
-| `select.py` | étendu : le niveau devient un préréglage qui écrit les paramètres |
-| `models.py` | réduit : cascade et résolution en couches remplacées par la dérivation et la semence |
-| `manager.py` | `apply_level` atomique, lecture des paramètres depuis les entités |
-| `registry.py` | création et réconciliation des deux nouvelles entités |
-| `config_flow.py` | réduit : sélection du thermostat et valeurs de semence seulement |
-| `__init__.py` | suppression de `_reload_thermostats` et `_async_update_options` |
-| `const.py` | clés des nouvelles entités, tables inverse de dérivation |
-| `strings.json`, `translations/` | libellés des entités ajoutées |
+| Fichier                         | Nature                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `number.py`                     | nouveau : deux entités `dt_min` et `error_threshold`                                 |
+| `select.py`                     | étendu : le niveau devient un préréglage qui écrit les paramètres                    |
+| `models.py`                     | réduit : cascade et résolution en couches remplacées par la dérivation et la semence |
+| `manager.py`                    | `apply_level` atomique, lecture des paramètres depuis les entités                    |
+| `registry.py`                   | création et réconciliation des deux nouvelles entités                                |
+| `config_flow.py`                | réduit : sélection du thermostat et valeurs de semence seulement                     |
+| `__init__.py`                   | suppression de `_reload_thermostats` et `_async_update_options`                      |
+| `const.py`                      | clés des nouvelles entités, tables inverse de dérivation                             |
+| `strings.json`, `translations/` | libellés des entités ajoutées                                                        |
 
 **Tests** — `tests/` : `test_config_flow.py` et `test_models.py` sont réécrits ;
 `test_setup.py`, `test_entity_state.py`, `test_manager.py` et `test_registry.py`
