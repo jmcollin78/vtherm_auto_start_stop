@@ -239,10 +239,10 @@ Effet conservé, et c'est une condition du modèle, pas un détail : le
 cycle, sans aucun redimensionnement (voir D12). C'est lui qui rend les deux sens
 de changement de niveau asymétriques :
 
-| Sens | Intégrale | Ancien seuil | Nouveau seuil | Après plafonnement | Stop immédiat ? |
-| --- | --- | --- | --- | --- | --- |
-| Lent → Rapide | 10 | 10 (saturée) | 2 | 2, donc au seuil | **possible** |
-| Rapide → Lent | 2 | 2 (saturée) | 10 | 2, donc sous le seuil | **non** |
+| Sens          | Intégrale | Ancien seuil | Nouveau seuil | Après plafonnement    | Stop immédiat ? |
+| ------------- | --------- | ------------ | ------------- | --------------------- | --------------- |
+| Lent → Rapide | 10        | 10 (saturée) | 2             | 2, donc au seuil      | **possible**    |
+| Rapide → Lent | 2         | 2 (saturée)  | 10            | 2, donc sous le seuil | **non**         |
 
 Ce qui reste réinitialisé, et pourquoi :
 
