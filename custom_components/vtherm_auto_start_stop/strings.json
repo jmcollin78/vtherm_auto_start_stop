@@ -111,7 +111,7 @@
             "message": "Value refused for {entity_id}: {value} is outside the allowed bounds ({min} to {max})."
         },
         "level_already_named": {
-            "message": "The level is already '{level}': selecting 'Custom' would change nothing. Edit a duration or threshold first."
+            "message": "The level is already “{level}”: selecting “Custom” would change nothing. Edit a duration or threshold first."
         },
         "missing_configuration": {
             "message": "The auto start/stop configuration no longer exists."

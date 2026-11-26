@@ -13,6 +13,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from vtherm_api.log_collector import get_vtherm_logger
 
@@ -39,6 +40,11 @@ from .registry import (
 )
 
 _LOGGER = get_vtherm_logger(__name__)
+
+#: The integration is configured exclusively through config entries: it takes no
+#: ``configuration.yaml`` section. Declaring the empty schema is what hassfest
+#: expects from an integration defining ``async_setup``.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 def _entries(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
