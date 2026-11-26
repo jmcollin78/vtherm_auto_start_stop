@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
@@ -16,9 +16,9 @@ from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
     CONF_ENABLED,
-    CONF_STOP_MODE,
     DATA_ENTRIES,
     DOMAIN,
+    LEVELS,
     SIGNAL_MANAGER_UPDATED,
     STOP_MODE_OFF,
     STOP_MODES,
@@ -45,9 +45,9 @@ _STATE_VERSION_KEY = f"{DOMAIN}_state_version"
 class ControlRestoreData(ExtraStoredData):
     """Distinguish persistent control choices from obsolete UI restore caches."""
 
-    value: bool | str
+    value: bool | str | float
 
-    def as_dict(self) -> dict[str, bool | str | int]:
+    def as_dict(self) -> dict[str, bool | str | float | int]:
         return {_STATE_VERSION_KEY: 1, "value": self.value}
 
 
@@ -68,7 +68,14 @@ def thermostat_device(
 
 
 class AutoStartStopEntity(RestoreEntity):
-    """A restorable control attached to its thermostat device."""
+    """A restorable control attached to its thermostat device.
+
+    Each control owns one field of the shared :class:`ControlState` bridge, named
+    by :attr:`_control_key`. The restore cascade is: saved state, then the
+    thermostat's dedicated or global entry seed, then the last HA state, then the
+    initialization defaults. A value restored from an entity always wins over a
+    seed.
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -87,7 +94,7 @@ class AutoStartStopEntity(RestoreEntity):
         self._attr_unique_id = f"{vtherm_unique_id}_{key}"
         self._attr_translation_key = key
         self._unsubscribers: list = []
-        self._value: bool | str | None = None
+        self._value: bool | str | float | None = None
 
         device = thermostat_device(hass, vtherm_unique_id)
         if device is not None:
@@ -112,11 +119,17 @@ class AutoStartStopEntity(RestoreEntity):
 
     @property
     def available(self) -> bool:
-        """An entity is available only while its manager is attached."""
+        """An entity is available only while its manager is attached.
+
+        Availability never encodes a refusal: a parameter that reads a custom
+        level stays readable and writable.
+        """
         manager = self.manager
         return (
             manager is not None and manager.controls_ready and self._value is not None
         )
+
+    # -- restore ------------------------------------------------------------
 
     async def async_added_to_hass(self) -> None:
         """Restore once, then attach the independent state to the live manager."""
@@ -125,23 +138,13 @@ class AutoStartStopEntity(RestoreEntity):
         if owner is not None:
             prepare_entity_ids(self.hass, owner, self._vtherm_unique_id)
         state = control_state(self.hass, self._vtherm_unique_id)
-        cached = state.enabled if self._control_key == CONF_ENABLED else state.stop_mode
+        cached = getattr(state, self._control_key)
         value = (
             cached if self._valid_value(cached) else await self._async_restore_value()
         )
-        if self._control_key == CONF_STOP_MODE and self.manager is not None:
-            if value not in self.manager.stop_modes:
-                _LOGGER.warning(
-                    "%s: restored stop mode %s is unsupported; using off",
-                    self.entity_id,
-                    value,
-                )
-                value = STOP_MODE_OFF
+        value = self._normalize_restored(value)
         self._value = value
-        if self._control_key == CONF_ENABLED:
-            state.enabled = bool(value)
-        elif isinstance(value, str):
-            state.stop_mode = value
+        setattr(state, self._control_key, value)
         self._unsubscribers.append(
             async_dispatcher_connect(
                 self.hass,
@@ -152,18 +155,29 @@ class AutoStartStopEntity(RestoreEntity):
         await async_apply_controls(self.hass, self._vtherm_unique_id)
         self.async_write_ha_state()
 
+    def _normalize_restored(self, value: bool | str | float) -> bool | str | float:
+        """Adjust a restored value against the live manager when needed.
+
+        The stop mode is the only control whose accepted values depend on the
+        thermostat: an unsupported restored mode falls back to ``off``.
+        """
+        return value
+
     @property
     def extra_restore_state_data(self) -> ExtraStoredData | None:
         if self._value is None:
             return None
         return ControlRestoreData(self._value)
 
-    def _valid_value(self, value: object) -> TypeGuard[bool | str]:
-        if self._control_key == CONF_ENABLED:
-            return isinstance(value, bool)
-        return isinstance(value, str) and value in STOP_MODES
+    def _valid_value(self, value: object) -> TypeGuard[bool | str | float]:
+        """Return whether a value may be stored in this control."""
+        raise NotImplementedError
 
-    async def _async_restore_value(self) -> bool | str:
+    def _decode_last_state(self, raw: str) -> bool | str | float | None:
+        """Turn a restored HA state string into a control value."""
+        return raw if self._valid_value(raw) else None
+
+    async def _async_restore_value(self) -> bool | str | float:
         extra = await self.async_get_last_extra_data()
         if extra is not None:
             saved = extra.as_dict()
@@ -174,45 +188,47 @@ class AutoStartStopEntity(RestoreEntity):
                 _LOGGER.warning(
                     "%s: invalid saved control value %s", self.entity_id, value
                 )
-                if self._control_key == CONF_STOP_MODE:
-                    return STOP_MODE_OFF
         legacy = dedicated_entry(self.hass, self._vtherm_unique_id)
         if legacy is not None:
-            value = entry_config(legacy).get(self._control_key)
+            value = entry_config(legacy).get(self._seed_key())
             if self._valid_value(value):
                 return value
         last = await self.async_get_last_state()
         if last is not None:
-            value = last.state
-            if self._control_key == CONF_ENABLED:
-                if value in ("on", "off"):
-                    return value == "on"
-            elif self._valid_value(value):
+            value = self._decode_last_state(last.state)
+            if self._valid_value(value):
                 return value
-            if value not in ("unknown", "unavailable"):
+            if last.state not in ("unknown", "unavailable"):
                 _LOGGER.warning(
                     "%s: cannot restore %s; using initialization default",
                     self.entity_id,
-                    value,
+                    last.state,
                 )
-                if self._control_key == CONF_STOP_MODE:
-                    return STOP_MODE_OFF
         defaults = initial_control_defaults(
-            self.hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {})
+            self.hass.data.get(DOMAIN, {}).get(DATA_ENTRIES, {}),
+            self._vtherm_unique_id,
         )
-        value = defaults[self._control_key]
+        value = defaults.get(self._seed_key())
         if not self._valid_value(value):
             _LOGGER.warning(
                 "%s: invalid initialization default %s", self.entity_id, value
             )
-            return False if self._control_key == CONF_ENABLED else STOP_MODE_OFF
+            return self._fallback_value()
         return value
+
+    def _seed_key(self) -> str:
+        """Return the entry key seeding this control."""
+        return self._control_key
+
+    def _fallback_value(self) -> bool | str | float:
+        """Return the last-resort value of an unusable seed."""
+        raise NotImplementedError
 
     @callback
     def _async_manager_updated(self) -> None:
         """Republish when the manager's state changed."""
         state = control_state(self.hass, self._vtherm_unique_id)
-        value = state.enabled if self._control_key == CONF_ENABLED else state.stop_mode
+        value = getattr(state, self._control_key)
         if self._valid_value(value):
             self._value = value
         if self.hass is not None and self.entity_id:
@@ -223,7 +239,7 @@ class AutoStartStopEntity(RestoreEntity):
         while self._unsubscribers:
             self._unsubscribers.pop()()
 
-    async def _async_set_value(self, value: bool | str) -> None:
+    async def _async_set_value(self, value: bool | str | float) -> None:
         """Apply and remember a control action without changing configuration."""
         if (
             self.hass.config_entries.async_get_entry(self._entry_id) is None
@@ -234,24 +250,16 @@ class AutoStartStopEntity(RestoreEntity):
                 translation_key="missing_configuration",
             )
         state = control_state(self.hass, self._vtherm_unique_id)
-        previous = (
-            state.enabled if self._control_key == CONF_ENABLED else state.stop_mode
-        )
+        previous = getattr(state, self._control_key)
         previous_value = self._value
-        if self._control_key == CONF_ENABLED:
-            state.enabled = bool(value)
-        elif isinstance(value, str):
-            state.stop_mode = value
+        setattr(state, self._control_key, value)
         applied = False
         try:
             await async_apply_controls(self.hass, self._vtherm_unique_id)
             applied = True
         finally:
             if not applied:
-                if self._control_key == CONF_ENABLED:
-                    state.enabled = previous if isinstance(previous, bool) else None
-                else:
-                    state.stop_mode = previous if isinstance(previous, str) else None
+                setattr(state, self._control_key, previous)
                 self._value = previous_value
                 self.async_write_ha_state()
         self._value = value

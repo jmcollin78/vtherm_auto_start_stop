@@ -29,20 +29,15 @@ from homeassistant.helpers import selector
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
-    CONF_DT_MIN,
     CONF_ENABLED,
-    CONF_ERROR_THRESHOLD,
     CONF_LEVEL,
     CONF_STOP_MODE,
     CONF_TARGET_ENTITY,
     CONF_VTHERM_UNIQUE_ID,
-    DEFAULT_ERROR_THRESHOLD,
-    DEFAULT_DT_MIN,
     DOMAIN,
     LEGACY_REGULATION_MODE,
     LEGACY_REGULATION_VALVE,
     LEGACY_THERMOSTAT_TYPE,
-    LEVELS,
     STOP_MODES,
     THERMOSTAT_TYPE_CLIMATE,
     VT_DOMAIN,
@@ -59,79 +54,30 @@ ERROR_INVALID_ENTITY = "invalid_entity"
 def _options_schema(
     defaults: dict[str, Any], *, parameters_only: bool = False
 ) -> vol.Schema:
-    """Schema of the configuration values of a global or dedicated entry."""
-    fields = {
-        vol.Optional(CONF_LEVEL, default=defaults[CONF_LEVEL]): (
-            selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=LEVELS,
-                    translation_key="auto_start_stop_level",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-        ),
-        vol.Optional(CONF_STOP_MODE, default=defaults[CONF_STOP_MODE]): (
-            selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=STOP_MODES,
-                    translation_key="auto_start_stop_stop_mode",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-        ),
-        vol.Optional(CONF_ENABLED, default=defaults[CONF_ENABLED]): (
-            selector.BooleanSelector()
-        ),
-        vol.Optional(CONF_DT_MIN, default=defaults.get(CONF_DT_MIN, DEFAULT_DT_MIN)): (
-            selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=5,
-                    max=120,
-                    unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            )
-        ),
-        vol.Optional(
-            CONF_ERROR_THRESHOLD,
-            default=defaults.get(CONF_ERROR_THRESHOLD, DEFAULT_ERROR_THRESHOLD),
-        ): (
-            selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1,
-                    max=50,
-                    step=0.5,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            )
-        ),
-    }
-    if parameters_only:
-        detection_keys = (CONF_LEVEL, CONF_DT_MIN, CONF_ERROR_THRESHOLD)
-        fields = {
-            key: value for key, value in fields.items() if key.schema in detection_keys
-        }
-    return vol.Schema(fields)
+    """Schema of the configuration values of a global or dedicated entry.
 
-
-def _is_number(value: Any) -> bool:
-    """Return whether a value is a real number (bool is excluded on purpose)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _clamp_numbers(user_input: dict[str, Any]) -> None:
-    """Defensively clamp the custom parameters to the selector bounds.
-
-    The UI (selector.NumberSelector) already refuses out-of-range values; this
-    is a last-line guard for programmatic submits so a bad value is corrected
-    instead of silently accepted.
+    The entry no longer configures detection parameters: they live in the
+    thermostat's entities. What remains are the enable/stop-mode and the initial
+    seeds, explicitly labelled as initialization-only. ``parameters_only`` is kept
+    for the dedicated branch, which shows the same seed fields.
     """
-    dt_min = user_input.get(CONF_DT_MIN)
-    if _is_number(dt_min):
-        user_input[CONF_DT_MIN] = max(5, min(120, int(dt_min)))
-    threshold = user_input.get(CONF_ERROR_THRESHOLD)
-    if _is_number(threshold):
-        user_input[CONF_ERROR_THRESHOLD] = max(1.0, min(50.0, float(threshold)))
+    del parameters_only
+    return vol.Schema(
+        {
+            vol.Optional(CONF_STOP_MODE, default=defaults[CONF_STOP_MODE]): (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=STOP_MODES,
+                        translation_key="auto_start_stop_stop_mode",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            ),
+            vol.Optional(CONF_ENABLED, default=defaults[CONF_ENABLED]): (
+                selector.BooleanSelector()
+            ),
+        }
+    )
 
 
 def _target_schema() -> vol.Schema:
@@ -195,7 +141,6 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Create the single global instance."""
         if user_input is not None:
-            _clamp_numbers(user_input)
             return self.async_create_entry(
                 title="Auto start/stop defaults", data=user_input
             )
@@ -235,11 +180,14 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_thermostat_options(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Set the values of a dedicated instance, seeded from the legacy level."""
+        """Record the dedicated instance's seeds and its covered thermostat.
+
+        The detection parameters are no longer configured here: they live in the
+        thermostat's entities. The legacy level is recorded as a seed so the two
+        parameter entities start at the level the user had before the migration;
+        a restored entity state still wins over it.
+        """
         defaults = _global_defaults(self.hass)
-        # Adopt the level the thermostat carried before the migration, unless
-        # the thermostat already has a dedicated instance (the cascade is not
-        # used here: this is the creation of the dedicated instance itself).
         seeded = legacy_level(self._core_entry_infos())
         if seeded is not None:
             defaults[CONF_LEVEL] = seeded
@@ -252,8 +200,9 @@ class AutoStartStopConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             data = dict(user_input)
-            _clamp_numbers(data)
             data[CONF_VTHERM_UNIQUE_ID] = self._target_unique_id
+            if seeded is not None:
+                data.setdefault(CONF_LEVEL, seeded)
             return self.async_create_entry(title=self._target_title(), data=data)
 
         return self.async_show_form(
@@ -340,7 +289,6 @@ class AutoStartStopOptionsFlow(OptionsFlow):
         current = entry_config(self._config_entry)
 
         if user_input is not None:
-            _clamp_numbers(user_input)
             return self.async_create_entry(title="", data=user_input)
 
         defaults = _global_defaults(self.hass)

@@ -25,7 +25,7 @@ from homeassistant.util import dt as dt_util
 from vtherm_api.const import EventType
 from vtherm_api.log_collector import get_vtherm_logger, write_event_log
 
-from .algorithm import AutoStartStopDetectionAlgorithm
+from .algorithm import AutoStartStopDetectionAlgorithm, resolve_params
 from .const import (
     ATTR_ACCUMULATED_ERROR,
     ATTR_ACCUMULATED_ERROR_THRESHOLD,
@@ -36,7 +36,10 @@ from .const import (
     ATTR_LAST_SWITCH_DATE,
     ATTR_LEVEL,
     ATTR_STOP_MODE,
-    CONF_LEVEL,
+    CONF_DT_MIN,
+    CONF_ENABLED,
+    CONF_ERROR_THRESHOLD,
+    CONF_STOP_MODE,
     DATA_MANAGERS,
     DOMAIN,
     HVAC_OFF_REASON_AUTO_START_STOP,
@@ -47,14 +50,26 @@ from .const import (
     STOP_MODE_FAN_ONLY,
     STOP_MODE_OFF,
 )
-from .models import effective_config, normalize_level, normalize_stop_mode
+from .models import (
+    derive_level,
+    initial_control_defaults,
+    is_covered,
+    normalize_level,
+    normalize_stop_mode,
+)
 from .registry import control_state, ensure_entities
 
 _LOGGER = get_vtherm_logger(__name__)
 
 
 class AutoStartStopManager:
-    """The auto start/stop feature manager of one thermostat."""
+    """The auto start/stop feature manager of one thermostat.
+
+    The manager is the single source of truth of the detection state: the five
+    entities (switch, stop-mode select, level select, two parameter numbers) are
+    views of it. Writing a parameter, selecting a level or toggling the switch
+    all funnel through the manager, which then publishes one update.
+    """
 
     def __init__(self, thermostat: Any, hass: HomeAssistant) -> None:
         self._thermostat = thermostat
@@ -67,6 +82,9 @@ class AutoStartStopManager:
         self._algorithm = AutoStartStopDetectionAlgorithm(
             normalize_level(None), str(thermostat)
         )
+        # Derived level cache, refreshed on every parameter/level write so the
+        # published attribute does not re-derive on each read.
+        self._level = self._algorithm.level
         # Capture the clock of the last refresh, so a transition can be
         # detected even when the flag is restored from a previous state.
         self._last_refresh: datetime | None = None
@@ -129,42 +147,52 @@ class AutoStartStopManager:
         self._algorithm.reset_switch_delay()
 
     def post_init(self, entry_infos: dict[str, Any]) -> None:
-        """Resolve the configuration and register the live manager.
+        """Check coverage and register the manager for its thermostat.
 
         ``entry_infos`` is the thermostat configuration the core passes to every
         manager. The plugin ignores it: its own configuration lives in its
         config entries, and the legacy level is read when a dedicated entry is
         created (see the config flow), not from the merged thermostat data.
+
+        Coverage is answered by :func:`is_covered`. The parameters themselves
+        live in the entities: the manager does **not** seed the bridge here, so
+        a restored entity state always wins over the entry seed. Each entity
+        seeds itself from :func:`initial_control_defaults` only when it has no
+        saved state of its own, then publishes the value through
+        :func:`async_apply_controls`.
         """
         del entry_infos
         entries = self._hass.data.get(DOMAIN, {}).get("entries", {})
-        config = effective_config(entries, self._thermostat.unique_id)
-        if config is None:
-            self._dispose("no effective configuration")
+        if not is_covered(entries, self._thermostat.unique_id):
+            self._dispose("no covering configuration")
             return
 
         self._configured = True
+
+        # A manager recreated after its entities restored can reconcile with
+        # the bridge immediately; otherwise the bridge stays empty until each
+        # entity restores and calls ``async_apply_controls``.
         state = control_state(self._hass, self._thermostat.unique_id)
         if state.enabled is not None and state.stop_mode is not None:
-            self.restore_entity_state(state.enabled, state.stop_mode)
-        level = normalize_level(config.get(CONF_LEVEL))
-        self._algorithm.set_params(level, config)
+            self.restore_entity_state(
+                state.enabled, state.stop_mode, state.dt_min, state.error_threshold
+            )
         self._algorithm.reset_switch_delay()
 
         self._hass.data.setdefault(DOMAIN, {}).setdefault(DATA_MANAGERS, {})[
             self._thermostat.unique_id
         ] = self
         _LOGGER.info(
-            "%s - auto start/stop registered (level=%s, stop_mode=%s, enabled=%s)",
+            "%s - auto start/stop registered (level=%s, dt_min=%s, threshold=%s, "
+            "stop_mode=%s, enabled=%s)",
             self,
-            level,
+            self._level,
+            self._algorithm.dt_min,
+            self._algorithm.accumulated_error_threshold,
             self._stop_mode,
             self._enabled,
         )
         ensure_entities(self._hass, self._thermostat.unique_id)
-        # Seed the stop-mode cache with the value resolved at registration so
-        # the first refresh does not publish merely to populate it. The list
-        # can later grow once the underlyings are attached (see refresh_state).
         self._stop_modes_cache = self.stop_modes
         async_dispatcher_send(
             self._hass,
@@ -281,7 +309,7 @@ class AutoStartStopManager:
 
         attributes[MANAGER_ATTRIBUTES_KEY] = {
             ATTR_ENABLE: self.enabled,
-            ATTR_LEVEL: self._algorithm.level,
+            ATTR_LEVEL: self._level,
             ATTR_DTMIN: self._algorithm.dt_min,
             ATTR_ACCUMULATED_ERROR: self._algorithm.accumulated_error,
             ATTR_ACCUMULATED_ERROR_THRESHOLD: (
@@ -392,8 +420,19 @@ class AutoStartStopManager:
             await self._thermostat.async_request_state_refresh()
         self._thermostat.update_custom_attributes()
 
-    def restore_entity_state(self, enabled: bool, stop_mode: str) -> None:
-        """Reconcile the manager with a supplied enable state and stop mode."""
+    def restore_entity_state(
+        self,
+        enabled: bool,
+        stop_mode: str,
+        dt_min: float | None = None,
+        error_threshold: float | None = None,
+    ) -> None:
+        """Reconcile the manager with a supplied control state.
+
+        The four values come from the thermostat's entities. The two parameters
+        are optional: a partially restored set still initialises the controls, and
+        the missing parameter keeps its seeded value.
+        """
         if stop_mode not in self.stop_modes:
             _LOGGER.warning(
                 "%s - restored stop mode %s is unsupported; using off", self, stop_mode
@@ -403,12 +442,23 @@ class AutoStartStopManager:
         if not enabled:
             self._is_stop_detected = False
         self._stop_mode = normalize_stop_mode(stop_mode)
+        if dt_min is not None and error_threshold is not None:
+            self._apply_parameters(dt_min, error_threshold)
         self._controls_ready = True
         state = control_state(self._hass, self._thermostat.unique_id)
         state.enabled, state.stop_mode = enabled, self._stop_mode
+        state.dt_min = self._algorithm.dt_min
+        state.error_threshold = self._algorithm.accumulated_error_threshold
+        state.level = self._level
 
-    async def async_initialize_controls(self, enabled: bool, stop_mode: str) -> None:
-        """Apply a complete restored pair before enabling detection."""
+    async def async_initialize_controls(
+        self,
+        enabled: bool,
+        stop_mode: str,
+        dt_min: float | None = None,
+        error_threshold: float | None = None,
+    ) -> None:
+        """Apply a complete restored set before enabling detection."""
         if stop_mode not in self.stop_modes:
             _LOGGER.warning(
                 "%s - restored stop mode %s is unsupported; using off", self, stop_mode
@@ -419,10 +469,83 @@ class AutoStartStopManager:
         if not ready:
             self._enabled = False
         await self.async_set_stop_mode(stop_mode)
+        if dt_min is not None and error_threshold is not None:
+            self._apply_parameters(dt_min, error_threshold)
         self._controls_ready = True
         if not ready or self._enabled != enabled:
             await self.async_set_enabled(enabled)
         self._publish_update()
+
+    # ------------------------------------------------------------------
+    # Detection parameters
+    # ------------------------------------------------------------------
+
+    @property
+    def level(self) -> str:
+        """Return the derived detection level."""
+        return self._level
+
+    @property
+    def dt_min(self) -> float:
+        """Return the current minimum duration, in minutes."""
+        return self._algorithm.dt_min
+
+    @property
+    def error_threshold(self) -> float:
+        """Return the current accumulated-error threshold."""
+        return self._algorithm.accumulated_error_threshold
+
+    async def apply_level(self, level: str) -> None:
+        """Select a named level: write both parameters, then publish once.
+
+        ``personnalise`` is not a value to write; the caller refuses it. A named
+        level's pair is read from the algorithm's table, so this never diverges
+        from :func:`derive_level`. The accumulated deviation is left intact, and
+        the five entities learn of the change through a single notification.
+        """
+        params = resolve_params(level)
+        if level == self._level and params.dt_min == self._algorithm.dt_min:
+            return
+        write_event_log(
+            _LOGGER,
+            self._thermostat,
+            f"Auto start/stop level changed to {level}",
+        )
+        self._apply_parameters(params.dt_min, params.error_threshold, level=level)
+        self._publish_update()
+
+    async def apply_parameters(self, dt_min: float, error_threshold: float) -> None:
+        """Apply a parameter pair, derive its level, then publish once.
+
+        The accumulated deviation is left intact: the parameters are reading
+        criteria, not the observation. The next cycle re-applies the threshold
+        bound with the new threshold (see the algorithm), so a faster pairing can
+        detect immediately while a slower one cannot.
+        """
+        if (
+            dt_min == self._algorithm.dt_min
+            and error_threshold == self._algorithm.accumulated_error_threshold
+        ):
+            return
+        write_event_log(
+            _LOGGER,
+            self._thermostat,
+            f"Auto start/stop parameters changed to dt_min={dt_min}, "
+            f"threshold={error_threshold}",
+        )
+        self._apply_parameters(dt_min, error_threshold)
+        self._publish_update()
+
+    def _apply_parameters(
+        self, dt_min: float, error_threshold: float, level: str | None = None
+    ) -> None:
+        """Store the pair in the algorithm and the bridge, without publishing."""
+        self._algorithm.set_parameters(dt_min, error_threshold)
+        self._level = level or derive_level(dt_min, error_threshold)
+        state = control_state(self._hass, self._thermostat.unique_id)
+        state.dt_min = dt_min
+        state.error_threshold = error_threshold
+        state.level = self._level
 
     # ------------------------------------------------------------------
     # Internals

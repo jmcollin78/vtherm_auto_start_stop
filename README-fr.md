@@ -31,8 +31,9 @@ pièce s'écarte de la consigne.
 - **Entièrement automatique** — aucun bouton à presser : c'est le plugin qui
   demande l'arrêt.
 - **Vous restez maîtres** — chaque thermostat reçoit un interrupteur *Activer
-  auto start/stop* et une sélection *Mode d'arrêt*, directement dans le tableau
-  de bord. La carte UI VTherm, inchangée, les pilote exactement comme avant.
+  auto start/stop*, une sélection *Mode d'arrêt*, une sélection *Niveau de
+  détection* et deux entités de paramètres, directement dans le tableau de bord.
+  La carte UI VTherm, inchangée, les pilote exactement comme avant.
 - **Une seule configuration globale** couvre tous vos thermostats ; les
   paramètres par thermostat sont optionnels et ne sont jamais nécessaires juste
   pour activer une pièce.
@@ -74,13 +75,13 @@ persister avant tout verdict) et le **seuil de score** à dépasser.
 Le niveau par défaut est **Lent (30 / 10)**, le comportement de
 l'ancienne fonctionnalité du core.
 
-> Avec le niveau **Personnalisé**, vous choisissez vous-même les deux valeurs :
-> une durée minimale entre **5 et 120 minutes** et un seuil entre **1 et 50**
-> (pas de 0,5). Les deux champs sont **toujours affichés** dans le formulaire de
-> configuration, quel que soit le niveau courant. Ils ne s'appliquent que quand
-> le niveau vaut *Personnalisé* — un niveau nommé utilise son tableau statique —
-> et les valeurs sont sauvegardées dans l'entrée pour ne pas avoir à les
-> ressaisir en revenant à *Personnalisé*.
+> Le niveau est une **étiquette de préréglage dérivée des deux valeurs**, pas un
+> réglage stocké. Deux entités par thermostat portent les paramètres : une
+> **durée minimale** (5 → 120 minutes) et un **seuil d'erreur** (1 → 50, pas de
+> 0,5). Choisir un niveau nommé écrit les deux valeurs d'un seul geste ; écrire
+> une valeur vous-même reclasse le niveau en *Personnalisé* dès qu'il ne
+> correspond plus à une paire nommée. La sélection de niveau ne fait que refléter
+> cette paire — elle n'en est jamais la source de vérité.
 
 ## 📋 Thermostats pris en charge
 
@@ -121,22 +122,27 @@ l'ancienne fonctionnalité du core.
 La première fois que vous ajoutez l'intégration, vous configurez les
 **paramètres globaux** :
 
-- **Niveau** — le niveau de détection appliqué à tous les thermostats
-  (tableau ci-dessus).
+- **Niveau initial** — le préréglage de détection semé la première fois qu'un
+  thermostat est couvert (il remplit ses deux entités de paramètres).
 - **Activation initiale** et **mode d'arrêt initial** — des valeurs par défaut
   utilisées **uniquement** tant que les contrôles d'un thermostat n'ont pas
   d'état sauvegardé (un thermostat nouveau). Une fois qu'un contrôle a un état
   sauvegardé, modifier ces valeurs par défaut ne le réinitialise jamais, même
   s'il n'a jamais été touché à la main.
 
-Chaque thermostat éligible reçoit automatiquement sa propre paire de contrôles :
+Chaque thermostat éligible reçoit automatiquement son propre jeu de contrôles :
 
 - **Activer auto start/stop** (interrupteur) — active ou désactive la détection
   pour ce thermostat uniquement, sans toucher à son mode d'arrêt sauvegardé.
 - **Mode d'arrêt** (sélection) — le mode HVAC appliqué quand le plugin demande
-  un arrêt :
+  un arrêt.
+- **Niveau de détection** (sélection) — un *préréglage* qui lit le niveau dérivé
+  des deux entités de paramètres ; choisir un niveau nommé écrit les deux
+  paramètres d'un seul geste.
+- **Durée minimale** et **Seuil d'erreur** (entités `number`) — les deux
+  paramètres de détection eux-mêmes, modifiables directement et par thermostat.
 
-| Option            | Comportement à l'arrêt automatique      | Disponibilité |
+| Mode d'arrêt      | Comportement à l'arrêt automatique      | Disponibilité |
 | ----------------- | --------------------------------------- | ------------- |
 | Off `off`         | L'équipement est mis hors tension       | Toujours      |
 | Ventilation       | L'équipement passe en ventilation       | Si supporté   |
@@ -147,33 +153,30 @@ Chaque thermostat éligible reçoit automatiquement sa propre paire de contrôle
 > choisir `Off` ne dit que *comment* l'équipement est arrêté. Choisir un mode
 > d'arrêt n'active ni ne désactive la détection.
 
-Tous ces états survivent aux rechargements et redémarrages. Modifier un contrôle
-ne crée jamais d'entrée de configuration et ne modifie jamais les paramètres
-globaux.
+Tous ces états survivent aux rechargements et redémarrages, indépendamment de
+toute entrée de configuration. Écrire un paramètre ne crée jamais d'entrée de
+configuration, ne modifie jamais les paramètres globaux et **ne recharge jamais
+un thermostat** : le manager attaché prend la nouvelle valeur immédiatement.
+Changer un paramètre laisse aussi le score accumulé intact — le score mesure un
+écart observé, tandis que les paramètres sont les critères qui lui sont
+appliqués.
 
 ### 🎛️ Les paramètres par thermostat (entrées dédiées optionnelles)
 
-Si un thermostat a besoin de **paramètres de détection** différents — par
-exemple une pièce qui monte vite et ne devrait pas être arrêtée précipitamment —
-ajoutez une autre entrée de configuration :
-
-1. Ajoutez **VTherm Auto Start/Stop** une nouvelle fois depuis *Appareils et
-   services*.
-2. Sélectionnez le thermostat.
-3. Choisissez son niveau (et ses valeurs Personnelles, si besoin).
-
-Les entrées dédiées ne modifient **que les paramètres** : l'activation et le
-mode d'arrêt restent toujours sur les contrôles d'entité (aucune entrée dédiée
-n'est jamais nécessaire pour ça). Les paramètres non définis dans l'entrée
-dédiée héritent de l'entrée globale, puis des valeurs par défaut du plugin.
+Les paramètres de détection sont déjà propres à chaque thermostat : chaque
+thermostat couvert possède ses entités **durée minimale**, **seuil d'erreur** et
+**niveau de détection**. Une entrée de configuration dédiée est donc optionnelle
+; elle ne change que la **couverture** et les **valeurs de semence** d'un seul
+thermostat — elle n'est jamais nécessaire pour activer une pièce ni pour régler
+un paramètre.
 
 ### 🗑️ Supprimer des entrées
 
-- Supprimer une entrée **dédiée** restaure l'héritage des paramètres ; les
-  contrôles, l'activation et le mode d'arrêt du thermostat sont intacts.
+- Supprimer une entrée **dédiée** ne retire que sa couverture et ses semences ;
+  les contrôles du thermostat et leurs états sauvegardés restent intacts tant
+  que l'entrée globale le couvre.
 - Supprimer l'entrée **globale** retire les contrôles de tous les thermostats
-  qui n'ont pas d'entrée dédiée ; ceux qui en ont continuent à fonctionner, les
-  paramètres manquants basculant sur les valeurs par défaut du plugin.
+  qui n'ont pas d'entrée dédiée ; ceux qui en ont conservent leurs contrôles.
 
 ## 🔄 Migration depuis la fonctionnalité du core
 
@@ -185,9 +188,10 @@ Si vos thermostats utilisaient déjà l'auto start/stop intégré :
   recrée les contrôles **sous leurs anciens identifiants d'entité exacts** —
   tableaux de bord, cartes et automatisations continuent de fonctionner sans
   changement.
-- Lorsque vous créez une entrée dédiée, son niveau est **initialisé depuis le
-  niveau historique du core** quand celui-ci est disponible ; une entrée dédiée
-  existante n'est jamais écrasée.
+- Lorsqu'un thermostat devient couvert, son niveau est **initialisé depuis le
+  niveau historique du core** quand celui-ci est disponible ; un état de
+  paramètre restauré n'est jamais écrasé. La semence n'est lue qu'une fois,
+  lorsqu'un contrôle n'a pas d'état sauvegardé.
 - Supprimer le plugin ne **réactive pas silencieusement** l'ancienne
   fonctionnalité du core — réactivez-la via Versatile Thermostat si vous la
   voulez de retour.
@@ -197,34 +201,20 @@ Si vos thermostats utilisaient déjà l'auto start/stop intégré :
 **J'ai désactivé la fonctionnalité sur un thermostat — pourquoi les contrôles
 et les attributs s'affichent-ils encore ?**
 Désactiver est un état sauvegardé, pas une désinstallation : le thermostat
-conserve son score (gelé), son mode d'arrêt et ses deux contrôles, de sorte que
-la réactivation est immédiate. En mode désactivé, la détection n'accumule plus
-et ne demande aucun arrêt.
+conserve son score (gelé), son mode d'arrêt, son niveau et ses deux paramètres,
+de sorte que la réactivation est immédiate. En mode désactivé, la détection
+n'accumule plus et ne demande aucun arrêt.
 
-**Puis-je activer la fonctionnalité pour un seul thermostat ?**
-Oui — configurez les paramètres globaux avec *activation initiale* désactivée,
-puis retournez l'interrupteur seulement sur le(s) thermostat(s) concerné(s).
-Aucune entrée de configuration supplémentaire n'est créée.
+**Pourquoi mes valeurs personnalisées ont-elles disparu quand j'ai choisi un
+niveau nommé ?**
+Un niveau nommé est un préréglage : le choisir écrit les deux paramètres sur la
+paire de ce niveau. Revenir à *Personnalisé* ne restaure pas les valeurs
+précédentes — il n'en existe aucune copie cachée. Réglez à nouveau les deux
+entités `number` pour retrouver vos valeurs.
 
-**Mon thermostat à vanne n'apparaît pas dans le sélecteur.**
-C'est volontaire : les thermostats à régulation par vanne restent exclus,
-exactement comme avec la fonctionnalité du core.
-
-## 🤝 Contribuer
-
-Voir [CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
-pour la conception, le workflow OpenSpec obligatoire et les interactions avec
-le core Versatile Thermostat.
-
-> **Note :** Ce plugin remplace la fonction équivalente d'auto start/stop du
-> core Versatile Thermostat, qui sera **totalement supprimée en 2027**.
-
-[commits]: https://github.com/jmcollin78/vtherm_auto_start_stop/commits/main
-[commits-shield]: https://img.shields.io/github/commit-activity/m/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
-[releases]: https://github.com/jmcollin78/vtherm_auto_start_stop/releases
-[releases-shield]: https://img.shields.io/github/release/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
-[license-shield]: https://img.shields.io/github/license/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
-[hacs]: https://hacs.xyz/
-[hacs_badge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=flat-square
-[buymecoffee]: https://www.buymeacoffee.com/jmcollin78
-[buymecoffeebadge]: https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black
+**J'ai changé le niveau dans l'entrée de configuration — pourquoi le thermostat
+n'a-t-il pas bougé ?**
+L'entrée ne fournit plus qu'une **semence**, lue quand un contrôle n'a pas
+d'état sauvegardé. Un thermostat couvert conserve ses propres entités de
+paramètres ; modifiez celles-ci (ou appelez les `number` par service) pour
+changer un thermostat en service.

@@ -194,12 +194,32 @@ def test_reset_switch_delay_allows_an_immediate_decision():
     assert algo.should_be_turned_off("heat", 25.0, 15.0, -0.1, at(92)) is False
 
 
-def test_set_level_resets_the_accumulation():
+def test_reset_switch_delay_keeps_the_accumulation():
+    """An explicit target change clears the delay but not the observation.
+
+    ``reset_switch_delay`` is the deliberate user-change hook (preset or target
+    temperature). It must keep the accumulated deviation intact: D11 removes the
+    reset from :meth:`set_params`, and the delay reset is a separate decision.
+    """
     algo = make(LEVEL_SLOW)
     algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(0))
-    assert algo.accumulated_error != 0
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(2))
+    accumulated = algo.accumulated_error
+    assert accumulated != 0
+    algo.reset_switch_delay()
+    assert algo.accumulated_error == accumulated
+    assert algo.last_switch_date is None
+
+
+def test_set_level_preserves_the_accumulation():
+    """D11: changing the level no longer discards the observed deviation."""
+    algo = make(LEVEL_SLOW)
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(0))
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(2))
+    accumulated = algo.accumulated_error
+    assert accumulated != 0
     algo.set_level(LEVEL_FAST)
-    assert algo.accumulated_error == 0
+    assert algo.accumulated_error == accumulated
     assert algo.dt_min == DT_MIN[LEVEL_FAST]
 
 
@@ -211,52 +231,95 @@ def test_set_params_personnalise_applies_custom_values():
     assert algo.accumulated_error_threshold == 25
 
 
-def test_set_params_personnalise_resets_when_parameters_change():
+def test_set_params_does_not_reset_the_accumulation():
+    """D11: setting parameters never touches the accumulated deviation."""
     algo = make(LEVEL_PERSONNALISE)
     algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 45, CONF_ERROR_THRESHOLD: 25})
     algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(0))
-    assert algo.accumulated_error != 0
-    # Same level, different resolved parameters: the accumulation restarts.
-    algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 60, CONF_ERROR_THRESHOLD: 30})
-    assert algo.accumulated_error == 0
-    # A third submission with the same parameters must not reset again.
-    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(5))
+    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(2))
     before = algo.accumulated_error
     assert before != 0
     algo.set_params(LEVEL_PERSONNALISE, {CONF_DT_MIN: 60, CONF_ERROR_THRESHOLD: 30})
     assert algo.accumulated_error == before
+    assert algo.dt_min == 60
+    assert algo.accumulated_error_threshold == 30
 
 
-def test_restore_rebuilds_the_published_state():
-    algo = make(LEVEL_SLOW)
-    algo.restore(-3.5, at(10))
-    assert algo.accumulated_error == -3.5
-    assert algo.last_switch_date == at(10)
+def test_set_params_does_not_touch_the_last_switch_date():
+    """5.2c: the switch delay is measured from the last real decision."""
+    algo = make(LEVEL_VERY_SLOW)
+    minutes = 0
+    while not algo.should_be_turned_off("heat", 20.0, 22.0, 0.1, at(minutes)):
+        minutes += 1
+        assert minutes < 200, "the stop was never detected"
+    switch_date = algo.last_switch_date
+    assert switch_date == at(minutes)
+    algo.set_level(LEVEL_FAST)
+    assert algo.last_switch_date == switch_date
 
 
-def test_restore_without_values_is_a_noop():
-    algo = make(LEVEL_SLOW)
-    algo.restore(None, None)
-    assert algo.accumulated_error == 0
-    assert algo.last_switch_date is None
+def test_faster_level_can_detect_on_the_next_cycle():
+    """5.2c: a saturated accumulation against a lower threshold detects at once.
 
-
-def test_full_cycle_at_120_seconds_accumulates_once():
-    """Task 3.3: two refreshes 120 s apart count exactly one cycle.
-
-    ``CYCLE_SEC`` is 120 s, so a measurement taken two minutes after the previous
-    one weights the error by exactly one cycle, and a second refresh taken on the
-    same clock adds nothing.
+    VERY_SLOW has threshold 20; FAST has threshold 2. With the deviation
+    saturated at 20 and the time since the last decision already above the new
+    ``dt_min``, the stop is detected on the next cycle.
     """
-    algo = make(LEVEL_SLOW)
-    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(0))
-    before = algo.accumulated_error
+    algo = make(LEVEL_VERY_SLOW)
+    # Saturate the accumulation at 20 while heating overshoots.
+    for minutes in range(0, 100, 1):
+        algo.should_be_turned_off("heat", 30.0, 10.0, 0.0, at(minutes))
+    for minutes in range(100, 200, 1):
+        # Keep accumulating with a sign that saturates negatively.
+        algo.should_be_turned_off("heat", 20.0, 40.0, 0.0, at(minutes))
+    assert algo.accumulated_error <= -algo.accumulated_error_threshold
 
-    # 1 °C of error, weighted by 120 s / 120 s = 1 cycle.
-    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(2))
-    assert algo.accumulated_error - before == pytest.approx(1.0)
+    # The user selects FAST: the threshold drops to 2, below the saturation.
+    algo.set_level(LEVEL_FAST)
+    assert algo.accumulated_error_threshold == ERROR_THRESHOLD[LEVEL_FAST]
+    # A decided stop on the very next measurement (already beyond dt_min).
+    detected = algo.should_be_turned_off("heat", 20.0, 40.0, 0.0, at(200))
+    assert detected is True
 
-    # The second refresh of the same cycle adds nothing.
-    after_one_cycle = algo.accumulated_error
-    algo.should_be_turned_off("heat", 20.0, 19.0, 0.0, at(2))
-    assert algo.accumulated_error == pytest.approx(after_one_cycle)
+
+def test_slower_level_cannot_detect_on_the_next_cycle():
+    """5.2c: raising the threshold puts the accumulation back under it."""
+    algo = make(LEVEL_FAST)
+    # Saturate the accumulation at 2 while cooling overshoots upward.
+    for minutes in range(0, 100, 1):
+        algo.should_be_turned_off("heat", 20.0, 40.0, 0.0, at(minutes))
+    saturated = algo.accumulated_error
+    assert saturated <= -ERROR_THRESHOLD[LEVEL_FAST]
+
+    # The user selects VERY_SLOW (threshold 20): the accumulation is now under
+    # the new threshold, so no stop can be detected on that cycle alone.
+    algo.set_level(LEVEL_VERY_SLOW)
+    assert algo.accumulated_error_threshold == ERROR_THRESHOLD[LEVEL_VERY_SLOW]
+    assert algo.accumulated_error == saturated
+    assert abs(algo.accumulated_error) < algo.accumulated_error_threshold
+
+
+def test_accumulation_is_bounded_with_the_current_threshold():
+    """5.2d: the bound follows the current threshold, never a scaled one."""
+    algo = make(LEVEL_VERY_SLOW)
+    for minutes in range(0, 60, 1):
+        algo.should_be_turned_off("heat", 30.0, 10.0, 0.0, at(minutes))
+    assert abs(algo.accumulated_error) == algo.accumulated_error_threshold
+
+    # Lowering the threshold bounds the existing accumulation to the new value.
+    algo.set_level(LEVEL_FAST)
+    algo.should_be_turned_off("heat", 30.0, 10.0, 0.0, at(60))
+    assert abs(algo.accumulated_error) == ERROR_THRESHOLD[LEVEL_FAST]
+
+
+def test_raising_the_threshold_does_not_inflate_the_accumulation():
+    """5.2d: the accumulation keeps its magnitude, never scaled up."""
+    algo = make(LEVEL_FAST)
+    for minutes in range(0, 30, 1):
+        algo.should_be_turned_off("heat", 20.0, 30.0, 0.0, at(minutes))
+    magnitude = abs(algo.accumulated_error)
+    assert magnitude == ERROR_THRESHOLD[LEVEL_FAST]
+
+    algo.set_level(LEVEL_VERY_SLOW)
+    algo.should_be_turned_off("heat", 20.0, 20.5, 0.0, at(30))
+    assert abs(algo.accumulated_error) < ERROR_THRESHOLD[LEVEL_VERY_SLOW]

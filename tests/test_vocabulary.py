@@ -69,18 +69,23 @@ def test_legacy_keys():
     "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
 )
 def test_configuration_translations_match_direct_flow(filename):
+    """The flow only seeds: parameters are set on the entities."""
     root = Path(plugin_const.__file__).parent
     content = json.loads((root / filename).read_text(encoding="utf-8"))
     steps = content["config"]["step"]
     assert set(steps) == {"global", "thermostat", "thermostat_options"}
     assert set(content["config"]["abort"]) == {"already_configured"}
+    # The flow no longer carries a detection parameter: those live on the
+    # number and select entities.
+    for step in ("global", "thermostat_options"):
+        assert set(steps[step]["data"]) == {
+            plugin_const.CONF_STOP_MODE,
+            plugin_const.CONF_ENABLED,
+        }
     assert steps["global"]["data"]["enabled"]
-    assert set(steps["thermostat_options"]["data"]) == {
-        plugin_const.CONF_LEVEL,
-        plugin_const.CONF_DT_MIN,
-        plugin_const.CONF_ERROR_THRESHOLD,
-    }
-    assert content["options"]["step"]["init"]["data"]["enabled"]
+    init_data = content["options"]["step"]["init"]["data"]
+    assert set(init_data) == {plugin_const.CONF_STOP_MODE, plugin_const.CONF_ENABLED}
+    assert init_data["enabled"]
     initial_label = steps["global"]["data"]["enabled"].lower()
     assert "initial" in initial_label
     assert "initial" in steps["global"]["data"][plugin_const.CONF_STOP_MODE].lower()
@@ -90,14 +95,31 @@ def test_configuration_translations_match_direct_flow(filename):
     "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
 )
 def test_independent_control_translations_match_entity_options(filename):
+    """Every one of the five controls has its own label."""
     root = Path(plugin_const.__file__).parent
     content = json.loads((root / filename).read_text(encoding="utf-8"))
-    assert set(content["entity"]) == {"switch", "select"}
-    assert content["entity"]["switch"][plugin_const.ENTITY_ENABLE_SUFFIX]["name"]
+    assert set(content["entity"]) == {"switch", "select", "number"}
+
+    switch = content["entity"]["switch"][plugin_const.ENTITY_ENABLE_SUFFIX]
+    assert switch["name"]
+
     select = content["entity"]["select"][plugin_const.ENTITY_STOP_MODE_SUFFIX]
     assert select["name"]
     assert set(select["state"]) == set(plugin_const.STOP_MODES)
     assert all(select["state"].values())
+
+    level = content["entity"]["select"][plugin_const.ENTITY_LEVEL_SUFFIX]
+    assert level["name"]
+    assert set(level["state"]) == set(plugin_const.LEVELS)
+    assert all(level["state"].values())
+
+    number = content["entity"]["number"]
+    assert set(number) == {
+        plugin_const.ENTITY_DT_MIN_SUFFIX,
+        plugin_const.ENTITY_ERROR_THRESHOLD_SUFFIX,
+    }
+    assert all(entry["name"] for entry in number.values())
+
     assert set(content["selector"][plugin_const.CONF_STOP_MODE]["options"]) == set(
         plugin_const.STOP_MODES
     )
@@ -105,6 +127,10 @@ def test_independent_control_translations_match_entity_options(filename):
     assert "{option}" in exceptions["invalid_auto_start_stop_option"]["message"]
     assert exceptions["missing_configuration"]["message"]
     assert "{entity_id}" in exceptions["entity_id_conflict"]["message"]
+    bound = exceptions["invalid_auto_start_stop_bound"]["message"]
+    for placeholder in ("{entity_id}", "{min}", "{max}", "{value}"):
+        assert placeholder in bound
+    assert "{level}" in exceptions["level_already_named"]["message"]
 
 
 def test_every_constant_is_referenced():

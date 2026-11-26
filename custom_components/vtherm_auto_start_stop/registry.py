@@ -27,12 +27,16 @@ from .const import (
     DATA_MANAGERS,
     DATA_UNLOADING,
     DOMAIN,
+    ENTITY_DT_MIN_SUFFIX,
     ENTITY_ENABLE_SUFFIX,
+    ENTITY_ERROR_THRESHOLD_SUFFIX,
+    ENTITY_LEVEL_SUFFIX,
     ENTITY_STOP_MODE_SUFFIX,
     LEGACY_ENTITY_IDS,
     LEGACY_REGULATION_MODE,
     LEGACY_REGULATION_VALVE,
     LEGACY_THERMOSTAT_TYPE,
+    PLATFORM_NUMBER,
     PLATFORM_SELECT,
     PLATFORM_SWITCH,
     THERMOSTAT_TYPE_CLIMATE,
@@ -68,6 +72,9 @@ class ControlState:
 
     enabled: bool | None = None
     stop_mode: str | None = None
+    dt_min: float | None = None
+    error_threshold: float | None = None
+    level: str | None = None
 
 
 def control_state(hass: HomeAssistant, unique_id: str) -> ControlState:
@@ -79,14 +86,22 @@ def control_state(hass: HomeAssistant, unique_id: str) -> ControlState:
 
 
 async def async_apply_controls(hass: HomeAssistant, unique_id: str) -> None:
+    """Push the restored control values into the live manager.
+
+    Enable and stop mode are required to bootstrap the manager (it cannot detect
+    before it knows them). The two detection parameters are applied together when
+    both are known, so a partially restored set still initialises the controls.
+    """
     state = control_state(hass, unique_id)
     manager = get_manager(hass, unique_id)
-    if (
-        manager is not None
-        and state.enabled is not None
-        and state.stop_mode is not None
-    ):
-        await manager.async_initialize_controls(state.enabled, state.stop_mode)
+    if manager is None or state.enabled is None or state.stop_mode is None:
+        return
+    await manager.async_initialize_controls(
+        state.enabled,
+        state.stop_mode,
+        state.dt_min,
+        state.error_threshold,
+    )
 
 
 def register_callback(
@@ -181,10 +196,32 @@ _CORE_SUFFIXES = {
     PLATFORM_SWITCH: "_enable_auto_start_stop",
     PLATFORM_SELECT: "_auto_start_stop_stop_mode",
 }
-_PLUGIN_SUFFIXES = {
-    PLATFORM_SWITCH: ENTITY_ENABLE_SUFFIX,
-    PLATFORM_SELECT: ENTITY_STOP_MODE_SUFFIX,
-}
+
+#: Every control the plugin publishes, as ``(platform, suffix)`` pairs, in a
+#: stable order. The five controls are created, removed and moved together.
+_PLUGIN_SUFFIXES: tuple[tuple[str, str], ...] = (
+    (PLATFORM_SWITCH, ENTITY_ENABLE_SUFFIX),
+    (PLATFORM_SELECT, ENTITY_STOP_MODE_SUFFIX),
+    (PLATFORM_SELECT, ENTITY_LEVEL_SUFFIX),
+    (PLATFORM_NUMBER, ENTITY_DT_MIN_SUFFIX),
+    (PLATFORM_NUMBER, ENTITY_ERROR_THRESHOLD_SUFFIX),
+)
+
+#: Platforms with a core antecedent, i.e. the only ones allowed to adopt an ID
+#: the core feature owned before the delegation. Kept separate from
+#: :data:`_PLUGIN_SUFFIXES` so historical compatibility cannot silently widen.
+_HISTORICAL_PLATFORMS: frozenset[str] = frozenset(_CORE_SUFFIXES)
+
+#: The exact ``(platform, suffix)`` pairs that may adopt a historical ID. Keyed
+#: by pair, not by platform, so the level select cannot inherit the stop-mode
+#: select's historical ID.
+_HISTORICAL_CONTROLS: frozenset[tuple[str, str]] = frozenset(
+    (
+        domain,
+        ENTITY_ENABLE_SUFFIX if domain == PLATFORM_SWITCH else ENTITY_STOP_MODE_SUFFIX,
+    )
+    for domain in _CORE_SUFFIXES
+)
 
 
 def _historical_ids(hass: HomeAssistant, core: ConfigEntry | None) -> dict[str, str]:
@@ -215,15 +252,17 @@ def _historical_ids(hass: HomeAssistant, core: ConfigEntry | None) -> dict[str, 
 def prepare_entity_ids(hass: HomeAssistant, entry: ConfigEntry, unique_id: str) -> bool:
     """Adopt exact historical IDs, or wait for legitimate core cleanup.
 
-    Validate the whole pair before changing either registry entry. Never take
+    Validate the whole set before changing any registry entry. Never take
     another entity's ID or accept Home Assistant's automatic numeric suffix.
+    Only the platforms with a core antecedent (via :data:`_HISTORICAL_PLATFORMS`)
+    adopt a historical ID; the other three never do.
     """
     registry = er.async_get(hass)
     core = _core_entry(hass, unique_id)
     historical = _historical_ids(hass, core)
-    planned: list[tuple[str, str | None, er.RegistryEntry | None, bool]] = []
+    planned: list[tuple[str, str, str | None, er.RegistryEntry | None, bool]] = []
     waiting_for_core = False
-    for domain, suffix in _PLUGIN_SUFFIXES.items():
+    for domain, suffix in _PLUGIN_SUFFIXES:
         plugin_id = registry.async_get_entity_id(
             domain, DOMAIN, f"{unique_id}_{suffix}"
         )
@@ -256,7 +295,10 @@ def prepare_entity_ids(hass: HomeAssistant, entry: ConfigEntry, unique_id: str) 
                 and old_owner.data.get(CONF_ENTITY_IDS_ADOPTED, False)
             )
         )
-        target = own.entity_id if adopted and own else historical.get(domain)
+        historical_id = (
+            historical.get(domain) if (domain, suffix) in _HISTORICAL_CONTROLS else None
+        )
+        target = own.entity_id if adopted and own else historical_id
         occupied = registry.async_get(target) if target else None
         if occupied is not None and occupied != own:
             if (
@@ -283,16 +325,16 @@ def prepare_entity_ids(hass: HomeAssistant, entry: ConfigEntry, unique_id: str) 
                 translation_key="entity_id_conflict",
                 translation_placeholders={"entity_id": target},
             )
-        planned.append((domain, target, own, adopted))
+        planned.append((domain, suffix, target, own, adopted))
 
     if waiting_for_core:
         return False
-    for domain, target, own, adopted in planned:
+    for domain, suffix, target, own, _adopted in planned:
         if own is None and target is not None:
             own = registry.async_get_or_create(
                 domain,
                 DOMAIN,
-                f"{unique_id}_{_PLUGIN_SUFFIXES[domain]}",
+                f"{unique_id}_{suffix}",
                 config_entry=entry,
                 suggested_object_id=target.split(".", 1)[1],
             )
@@ -315,7 +357,7 @@ def prepare_entity_ids(hass: HomeAssistant, entry: ConfigEntry, unique_id: str) 
 
 
 def ensure_entities(hass: HomeAssistant, unique_id: str) -> None:
-    """Create the two controls of a thermostat, once.
+    """Create the five controls of a thermostat, once.
 
     Called on manager registration and on each refresh, so a plugin entry loaded
     after the thermostat still ends up creating its controls.
@@ -324,9 +366,8 @@ def ensure_entities(hass: HomeAssistant, unique_id: str) -> None:
     if entry is None or unique_id in _domain_data(hass).get(DATA_INELIGIBLE, set()):
         return
     callbacks = _domain_data(hass).get(DATA_ADD_ENTITIES, {}).get(entry.entry_id, {})
-    switch_cb = callbacks.get(PLATFORM_SWITCH)
-    select_cb = callbacks.get(PLATFORM_SELECT)
-    if switch_cb is None or select_cb is None:
+    required = {PLATFORM_SWITCH, PLATFORM_SELECT, PLATFORM_NUMBER}
+    if any(callbacks.get(platform) is None for platform in required):
         return
 
     created = _domain_data(hass).setdefault(DATA_CREATED, {})
@@ -339,14 +380,33 @@ def ensure_entities(hass: HomeAssistant, unique_id: str) -> None:
 
     # Imported here to avoid circular imports with the platforms, which import
     # this module to register their callbacks.
-    from .select import AutoStartStopStopModeSelect
+    from .number import (
+        AutoStartStopDtMinNumber,
+        AutoStartStopErrorThresholdNumber,
+    )
+    from .select import AutoStartStopLevelSelect, AutoStartStopStopModeSelect
     from .switch import AutoStartStopEnableSwitch
 
-    switch = AutoStartStopEnableSwitch(hass, entry, unique_id)
-    select = AutoStartStopStopModeSelect(hass, entry, unique_id)
-    _domain_data(hass).setdefault(DATA_ENTITIES, {})[unique_id] = [switch, select]
-    switch_cb([switch])
-    select_cb([select])
+    controls = [
+        AutoStartStopEnableSwitch(hass, entry, unique_id),
+        AutoStartStopStopModeSelect(hass, entry, unique_id),
+        AutoStartStopLevelSelect(hass, entry, unique_id),
+        AutoStartStopDtMinNumber(hass, entry, unique_id),
+        AutoStartStopErrorThresholdNumber(hass, entry, unique_id),
+    ]
+    _domain_data(hass).setdefault(DATA_ENTITIES, {})[unique_id] = controls
+    for platform, control in zip(
+        (
+            PLATFORM_SWITCH,
+            PLATFORM_SELECT,
+            PLATFORM_SELECT,
+            PLATFORM_NUMBER,
+            PLATFORM_NUMBER,
+        ),
+        controls,
+        strict=True,
+    ):
+        callbacks[platform]([control])
 
 
 def ensure_all_entities(hass: HomeAssistant) -> None:
@@ -366,7 +426,7 @@ async def async_remove_controls(
     reset_entities(hass, unique_id)
     if remove_registry:
         registry = er.async_get(hass)
-        for domain, suffix in _PLUGIN_SUFFIXES.items():
+        for domain, suffix in _PLUGIN_SUFFIXES:
             entity_id = registry.async_get_entity_id(
                 domain, DOMAIN, f"{unique_id}_{suffix}"
             )

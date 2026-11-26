@@ -80,6 +80,29 @@ class LevelParams:
     """Accumulated-error magnitude that triggers a decision."""
 
 
+#: Relative tolerance applied to the float comparison of a parameter pair, so the
+#: ``number`` entities' ``30.0`` still matches a table value of ``30``.
+PARAMETER_TOLERANCE = 1e-6
+
+
+def _derive_level(dt_min: float, error_threshold: float) -> str:
+    """Return the named level matching a pair, or ``personnalise``.
+
+    The tables here are injective, so at most one named level matches. Kept in
+    this module (rather than importing ``models.derive_level``) to avoid a
+    circular import; ``models.derive_level`` is the public entry point and uses
+    the same tables and tolerance.
+    """
+    for level, level_dt_min in DT_MIN.items():
+        if (
+            abs(float(dt_min) - level_dt_min) <= PARAMETER_TOLERANCE
+            and abs(float(error_threshold) - ERROR_THRESHOLD[level])
+            <= PARAMETER_TOLERANCE
+        ):
+            return level
+    return LEVEL_PERSONNALISE
+
+
 def _clamp_custom_key(
     config: dict[str, Any] | None, key: str, fallback: float
 ) -> float:
@@ -141,22 +164,37 @@ class AutoStartStopDetectionAlgorithm:
     # -- configuration ------------------------------------------------------
 
     def set_params(self, level: str, config: dict[str, Any] | None) -> None:
-        """Set the level and its parameters, resetting the accumulation on change.
+        """Set the level and its parameters without touching the accumulation.
 
         ``config`` carries the detection parameters; only ``personnalise`` reads
-        it (the custom ``dt_min`` and threshold). When the level or the resolved
-        parameters change the accumulation restarts from zero.
+        it (the custom ``dt_min`` and threshold). The accumulated deviation is an
+        observed physical measurement, and the parameters are reading criteria
+        applied to it: changing a criterion must not discard the measurement, so
+        this method never resets ``_accumulated_error`` nor ``_last_switch_date``.
+        The accumulation stays bounded to the *new* threshold on the next cycle
+        (see :meth:`should_be_turned_off`), which is what makes a faster level
+        able to detect on the very next cycle while a slower one cannot.
         """
-        params = resolve_params(level, config)
-        if level == self._level and params == self._params:
-            return
         self._level = level
-        self._params = params
-        self._accumulated_error = 0.0
+        self._params = resolve_params(level, config)
 
     def set_level(self, level: str) -> None:
-        """Set a new level, resetting the accumulation when it changes."""
+        """Set a new level; the accumulation is preserved (see :meth:`set_params`)."""
         self.set_params(level, None)
+
+    def set_parameters(
+        self, dt_min: float, error_threshold: float, level: str | None = None
+    ) -> None:
+        """Set a custom pair directly, preserving the accumulation.
+
+        Used by the parameters path. When ``level`` is omitted, the level is
+        derived from the pair with the same injective table the model uses, so
+        the algorithm never claims ``personnalise`` for a pair that matches a
+        named level. The accumulation is preserved for the same reason as
+        :meth:`set_params`.
+        """
+        self._level = level or _derive_level(dt_min, error_threshold)
+        self._params = LevelParams(float(dt_min), float(error_threshold))
 
     def reset_switch_delay(self) -> None:
         """Allow an immediate start/stop after a deliberate user change.

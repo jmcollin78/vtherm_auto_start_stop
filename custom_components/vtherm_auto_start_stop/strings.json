@@ -4,29 +4,25 @@
         "step": {
             "global": {
                 "title": "Auto start/stop defaults",
-                "description": "Shared detection parameters for every eligible thermostat. Enable and stop mode initialize entities without saved states only; later default edits do not reset existing entities.",
+                "description": "These values only initialize the entities of a thermostat that has no saved state yet. The detection parameters are then set on the thermostat's entities (level, minimum duration, error threshold).",
                 "data": {
-                    "auto_start_stop_level": "Level",
-                    "auto_start_stop_dtmin": "Minimum duration (minutes)",
-                    "auto_start_stop_error_threshold": "Accumulated error threshold",
                     "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
                     "enabled": "Initially enabled (new entities only)"
                 }
             },
             "thermostat": {
                 "title": "Thermostat",
-                "description": "Select a thermostat needing different detection parameters. Enable and stop mode are remembered by its switch and select, without a dedicated configuration.",
+                "description": "Select a thermostat to cover with a dedicated configuration. Its entities carry the enable state, the stop mode and the detection parameters.",
                 "data": {
                     "target_entity": "Thermostat"
                 }
             },
             "thermostat_options": {
                 "title": "Thermostat settings",
-                "description": "Detection parameters override global values for this thermostat without changing its saved enable state or stop mode.",
+                "description": "These values initialize the thermostat's entities that have no saved state yet. Editing this configuration does not change the detection parameters already set on the entities.",
                 "data": {
-                    "auto_start_stop_level": "Level",
-                    "auto_start_stop_dtmin": "Minimum duration (minutes)",
-                    "auto_start_stop_error_threshold": "Accumulated error threshold"
+                    "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
+                    "enabled": "Initially enabled (new entities only)"
                 }
             }
         },
@@ -43,11 +39,8 @@
         "step": {
             "init": {
                 "title": "Auto start/stop settings",
-                "description": "Dedicated detection parameters override global values. Enable and stop-mode defaults, when shown, initialize new entities only and never reset saved states.",
+                "description": "These values initialize the thermostat's entities that have no saved state yet. The live detection parameters are set on the entities (level, minimum duration, error threshold), without a reload.",
                 "data": {
-                    "auto_start_stop_level": "Level",
-                    "auto_start_stop_dtmin": "Minimum duration (minutes)",
-                    "auto_start_stop_error_threshold": "Accumulated error threshold",
                     "auto_start_stop_stop_mode": "Initial stop mode (new entities only)",
                     "enabled": "Initially enabled (new entities only)"
                 }
@@ -86,6 +79,24 @@
                     "fan_only": "Fan only",
                     "dry": "Dry"
                 }
+            },
+            "auto_start_stop_level": {
+                "name": "Detection level",
+                "state": {
+                    "auto_start_stop_very_slow": "Very slow",
+                    "auto_start_stop_slow": "Slow",
+                    "auto_start_stop_medium": "Medium",
+                    "auto_start_stop_fast": "Fast",
+                    "auto_start_stop_personnalise": "Custom"
+                }
+            }
+        },
+        "number": {
+            "auto_start_stop_dtmin": {
+                "name": "Minimum duration before stop"
+            },
+            "auto_start_stop_error_threshold": {
+                "name": "Accumulated error threshold"
             }
         }
     },
@@ -95,6 +106,12 @@
         },
         "invalid_auto_start_stop_option": {
             "message": "Unsupported auto start/stop option: {option}."
+        },
+        "invalid_auto_start_stop_bound": {
+            "message": "Value refused for {entity_id}: {value} is outside the allowed bounds ({min} to {max})."
+        },
+        "level_already_named": {
+            "message": "The level is already '{level}': selecting 'Custom' would change nothing. Edit a duration or threshold first."
         },
         "missing_configuration": {
             "message": "The auto start/stop configuration no longer exists."

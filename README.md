@@ -28,9 +28,10 @@ drifts from the target again.
 - **Saves energy** — every automatic stop avoids useless minutes of compressor or
   boiler work.
 - **Fully automatic** — no button to press: the plugin requests the stop itself.
-- **You stay in control** — each thermostat gets an *Enable auto start/stop* switch
-  and a *Stop mode* select, right in the dashboard. The unchanged VTherm UI card
-  operates them exactly as before.
+- **You stay in control** — each thermostat gets an *Enable auto start/stop*
+  switch, a *Stop mode* select, a *Detection level* select and two parameter
+  numbers, right in the dashboard. The unchanged VTherm UI card operates them
+  exactly as before.
 - **One global configuration** covers all of your thermostats; per-thermostat
   parameter overrides are optional and never needed merely to enable a room.
 - **Standalone** — auto start/stop runs entirely as this plugin, with the
@@ -71,12 +72,12 @@ verdict) and the **score threshold** it must cross.
 
 The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 
-> With the **Custom** level you set both values yourself: a minimum duration
-> between **5 and 120 minutes** and a threshold between **1 and 50** (step 0.5).
-> The two fields are always shown in the configuration form, whatever the
-> current level. They are only applied when the level is *Custom* — with a named
-> level the static table is used instead — and the values are saved in the entry
-> so you do not have to re-enter them when you switch back to *Custom*.
+> The level is a **preset label derived from the two values**, not a stored
+> setting. Two entities per thermostat carry the parameters: a **minimum
+> duration** (5 → 120 minutes) and an **error threshold** (1 → 50, step 0.5).
+> Selecting a named level writes both values in one go; writing one value
+> yourself reclassifies the level as *Custom* when it no longer matches a named
+> pair. The level select simply reflects that pair — it never holds the truth.
 
 ## 📋 Supported thermostats
 
@@ -113,20 +114,25 @@ The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 
 The first time you add the integration, you configure the **global settings**:
 
-- **Level** — the detection level applied to every thermostat (table above).
-- **Initial enable** and **initial stop mode** — defaults used **only** while a
-  thermostat's controls have no saved state yet (a brand-new thermostat). Once a
-  control has a saved state, editing these defaults never resets it, even if you
-  never touched it by hand.
+- **Initial level**, **initial enable** and **initial stop mode** — seeds used
+  **only** while a thermostat's controls have no saved state yet (a brand-new
+  thermostat). Once a control has a saved state, editing these seeds never
+  resets it, even if you never touched it by hand. The level seed fills the two
+  parameter entities the first time the thermostat is covered.
 
-Every eligible thermostat automatically receives its own pair of controls:
+Every eligible thermostat automatically receives its own set of controls:
 
 - **Enable auto start/stop** (switch) — turns detection on or off for that
   thermostat only, without touching its saved stop mode.
 - **Stop mode** (select) — which HVAC mode to apply when the plugin requests a
-  stop:
+  stop.
+- **Detection level** (select) — a *preset* that reads the level derived from
+  the two parameter entities; selecting a named level writes both parameters at
+  once.
+- **Minimum duration** and **Error threshold** (numbers) — the two detection
+  parameters themselves, editable directly and per thermostat.
 
-| Option    | Behaviour on an automatic stop     | Availability |
+| Stop mode | Behaviour on an automatic stop     | Availability |
 | --------- | ---------------------------------- | ------------ |
 | Off `off` | The device is switched off         | Always       |
 | Fan only  | The device switches to ventilation | If supported |
@@ -137,30 +143,29 @@ Every eligible thermostat automatically receives its own pair of controls:
 > the device is stopped. Selecting a stop mode never enables or disables
 > detection.
 
-All of these states survive reloads and restarts. Changing a control never
-creates a configuration entry and never modifies the global settings.
+All of these states survive reloads and restarts, independently of any
+configuration entry. Writing a parameter never creates a configuration entry,
+never writes the global settings, and **never reloads a thermostat**: the
+attached manager picks the new value up immediately. Changing a parameter also
+leaves the accumulated score intact — the score measures an observed gap, while
+the parameters are the criteria applied to it.
 
 ### 🎛️ Per-thermostat parameters (optional dedicated entries)
 
-If one thermostat needs different **detection parameters** — say a slow room
-that should not stop quickly — add another configuration entry:
-
-1. Add **VTherm Auto Start/Stop** again from *Devices & services*.
-2. Select the thermostat.
-3. Choose its level (and its Custom values, if needed).
-
-Dedicated entries change **parameters only**: activation and stop mode always
-stay on the entity controls (no dedicated entry is ever needed for those).
-Parameters you do not set in the dedicated entry inherit from the global entry,
-then from the plugin defaults.
+Detection parameters are already per-thermostat: every covered thermostat has its
+own **minimum duration**, **error threshold** and **detection level** entities. A
+dedicated configuration entry is therefore optional; it only changes the
+**coverage** and the **initial seeds** of a single thermostat — it is never
+required to enable a room or to adjust a parameter.
 
 ### 🗑️ Removing entries
 
-- Removing a **dedicated** entry restores parameter inheritance; the
-  thermostat's controls, activation and stop mode are untouched.
+- Removing a **dedicated** entry only drops its coverage and its seeds; the
+  thermostat's controls and their saved states are untouched while the global
+  entry still covers it.
 - Removing the **global** entry removes the controls of every thermostat that
-  has no dedicated entry of its own; thermostats that do keep working, with
-  missing parameters falling back to the plugin defaults.
+  has no dedicated entry of its own; thermostats with a dedicated entry keep
+  their controls.
 
 ## 🔄 Migrating from the core feature
 
@@ -171,8 +176,9 @@ If your thermostats already used the built-in auto start/stop:
   the old switch and select, and the plugin recreates the controls **under their
   exact previous entity IDs** — dashboards, cards and automations keep working
   unchanged.
-- When you create a dedicated entry, its level is **seeded from the legacy core
-  level** when available; an existing dedicated entry is never overwritten.
+- When a thermostat becomes covered, its level is **seeded from the legacy core
+  level** when available; an existing restored parameter state is never
+  overwritten. The seed is read once, when a control has no saved state.
 - Removing the plugin does **not** silently re-enable the old core feature —
   re-enable it through Versatile Thermostat if you want it back.
 
@@ -181,8 +187,20 @@ If your thermostats already used the built-in auto start/stop:
 **I disabled the feature on a thermostat — why do the controls and attributes
 still show up?**
 Disabling is a saved state, not an uninstall: the thermostat keeps its (frozen)
-accumulated score, its stop mode and both controls, so re-enabling is immediate.
-While disabled, detection does not accumulate and requests no stop.
+accumulated score, its stop mode, its level and its two parameters, so
+re-enabling is immediate. While disabled, detection does not accumulate and
+requests no stop.
+
+**Why did my custom values disappear when I picked a named level?**
+A named level is a preset: choosing it writes both parameters to that level's
+pair. Going back to *Custom* does not restore the previous values — there is no
+hidden copy of them. Set the two numbers again to get your values back.
+
+**I edited the level in the configuration entry — why did the thermostat not
+change?**
+The entry now only supplies a **seed**, read when a control has no saved state.
+A covered thermostat keeps its own parameter entities; edit those (or call the
+numbers through a service) to change a running thermostat.
 
 **Can I enable the feature for only one thermostat?**
 Yes — configure the global settings with *initial enable* off, then flip the

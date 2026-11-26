@@ -9,7 +9,6 @@ refreshes it each cycle and resolves it as the auto-start/stop decision owner.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -18,24 +17,23 @@ from homeassistant.helpers import entity_registry as er
 from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
-    CONF_VTHERM_UNIQUE_ID,
     DATA_ENTRIES,
     DATA_UNLOADING,
     DOMAIN,
     PLATFORMS,
-    VT_DOMAIN,
 )
 from .factory import (
     AutoStartStopManagerFactory,
     register_factory,
     unregister_factory,
 )
-from .models import PARAMETER_KEYS, PARAMETER_OVERLAYS, entry_config
+from .models import entry_config
 from .registry import (
     async_reconcile_entities,
     covered_thermostats,
     entity_owner,
     ensure_all_entities,
+    get_manager,
     prepare_entity_ids,
 )
 
@@ -47,40 +45,19 @@ def _entries(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
     return hass.data.setdefault(DOMAIN, {}).setdefault(DATA_ENTRIES, {})
 
 
-async def _reload_thermostats(
-    hass: HomeAssistant, source_entry: ConfigEntry | None = None
-) -> None:
-    """Reload the thermostats whose resolution may have changed.
+async def _reresolve_managers(hass: HomeAssistant) -> None:
+    """Re-resolve every manager after a coverage or seed change.
 
-    A dedicated entry only affects its own thermostat; the global
-    entry affects every thermostat inheriting at least one field. Reloading the
-    thermostat re-runs the factory, so a manager appears, disappears or picks up
-    new values without any other action.
+    A change to an entry no longer reloads any thermostat: the entry grants
+    coverage and seeds, so re-running the managers' ``post_init`` and recreating
+    the missing controls is enough. The existing managers keep their live state;
+    a thermostat that gained or lost coverage gains or loses its controls here.
     """
-    target: str | None = None
-    if source_entry is not None:
-        target = entry_config(source_entry).get(CONF_VTHERM_UNIQUE_ID)
-
-    overrides: set[str] = set()
-    for config in _entries(hass).values():
-        unique_id = config.get(CONF_VTHERM_UNIQUE_ID)
-        if unique_id and all(key in config for key in PARAMETER_KEYS):
-            overrides.add(unique_id)
-
-    tasks = []
-    for thermostat_entry in hass.config_entries.async_entries(VT_DOMAIN):
-        thermostat_ids = (thermostat_entry.entry_id, thermostat_entry.unique_id)
-        if target is not None:
-            if target not in thermostat_ids:
-                continue
-        elif source_entry is not None and any(
-            identity in overrides for identity in thermostat_ids
-        ):
-            # A complete dedicated configuration inherits no global field.
-            continue
-        tasks.append(hass.config_entries.async_reload(thermostat_entry.entry_id))
-    if tasks:
-        await asyncio.gather(*tasks)
+    await async_reconcile_entities(hass)
+    for unique_id in covered_thermostats(hass):
+        manager = get_manager(hass, unique_id)
+        if manager is not None:
+            manager.post_init({})
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -115,7 +92,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(entry.add_update_listener(_async_update_options))
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         if hass.state == CoreState.running:
-            await _reload_thermostats(hass, entry)
+            await _reresolve_managers(hass)
         complete = True
     finally:
         if not complete:
@@ -125,16 +102,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply changed options and reload the affected thermostats."""
-    previous = _entries(hass).get(entry.entry_id, {})
-    current = entry_config(entry)
-    _entries(hass)[entry.entry_id] = current
-    if all(
-        previous.get(key) == current.get(key)
-        for key in (*PARAMETER_OVERLAYS, CONF_VTHERM_UNIQUE_ID)
-    ):
-        return
-    await _reload_thermostats(hass, entry)
+    """Apply changed options without reloading any thermostat.
+
+    The entry only grants coverage and seeds controls that have no restored
+    state, so a change is absorbed by a re-resolution of the managers rather than
+    a reload of the Versatile Thermostat entries.
+    """
+    _entries(hass)[entry.entry_id] = entry_config(entry)
+    if hass.state == CoreState.running:
+        await _reresolve_managers(hass)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -149,7 +125,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloading.discard(entry.entry_id)
     if not _entries(hass):
         unregister_factory(hass)
-    await _reload_thermostats(hass, entry)
+    await async_reconcile_entities(hass)
     if not _entries(hass):
         hass.data.pop(DOMAIN, None)
     return True

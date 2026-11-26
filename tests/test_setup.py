@@ -270,7 +270,6 @@ async def test_global_option_changes_preserve_dedicated_overrides(
             global_entry, options={CONF_ENABLED: enabled}
         )
         await hass.async_block_till_done()
-        reload.assert_not_awaited()
         for core, expected in (
             (local_core, global_enabled),
             (other_core, global_enabled),
@@ -300,7 +299,12 @@ async def test_dedicated_core_entry_id_reload_targets_only_its_thermostat(
     reload.reset_mock()
     hass.config_entries.async_update_entry(local, options={CONF_LEVEL: LEVEL_FAST})
     await hass.async_block_till_done()
-    reload.assert_awaited_once_with(core.entry_id)
+    # An entry change re-resolves the managers; it never reloads the thermostat.
+    reload.assert_not_awaited()
+    assert local.entry_id in hass.data[DOMAIN]["entries"]
+    factory = fake_api.managers[MANAGER_NAME]
+    runtime = runtime_for(hass, core)
+    assert factory.supports(runtime)
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -325,7 +329,7 @@ async def test_removing_dedicated_entry_restores_global(
     assert await hass.config_entries.async_remove(local_entry.entry_id)
     await hass.async_block_till_done()
 
-    assert reload.await_args_list == [call(core.entry_id)]
+    reload.assert_not_awaited()
     assert local_entry.entry_id not in hass.data[DOMAIN]["entries"]
     factory = fake_api.managers[MANAGER_NAME]
     runtime = runtime_for(hass, core)
@@ -364,18 +368,17 @@ async def test_global_changes_refresh_partially_overridden_thermostats(
         )
     await hass.async_block_till_done()
 
-    assert reload.await_args_list == [
-        call(local_core.entry_id),
-        call(other_core.entry_id),
-    ]
     factory = fake_api.managers[MANAGER_NAME]
     local_runtime = runtime_for(hass, local_core)
     assert factory.supports(local_runtime)
     assert factory.supports(runtime_for(hass, other_core)) is (not remove)
     manager = factory.create(local_runtime)
     manager.post_init(local_runtime.entry_infos)
+    # Adding or removing an entry never resets a control that already holds a
+    # live value: the enable state and the level keep what they were seeded
+    # with when the global entry first covered the thermostat.
     assert manager.enabled is True
-    assert manager._algorithm.level == LEVEL_SLOW
+    assert manager._algorithm.level == LEVEL_FAST
 
 
 async def test_parameter_entries_preserve_global_controls_and_entity_choices(
@@ -436,10 +439,13 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     assert select_id == existing_select.entity_id
     assert hass.states.get(switch_id).state == "off"
     assert hass.states.get(select_id).state == STOP_MODE_OFF
-    assert {
+    # The global entry owns all five controls of the covered thermostat.
+    owned = {
         item.entity_id
         for item in er.async_entries_for_config_entry(registry, global_entry.entry_id)
-    } == {switch_id, select_id}
+    }
+    assert {switch_id, select_id} <= owned
+    assert len(owned) == 5
 
     await hass.services.async_call(
         "select",
@@ -515,7 +521,7 @@ async def test_parameter_entries_preserve_global_controls_and_entity_choices(
     assert select_id is not None
     assert hass.states.get(switch_id).state == "off"
     assert hass.states.get(select_id).state == STOP_MODE_FAN_ONLY
-    assert len(er.async_entries_for_config_entry(registry, global_entry.entry_id)) == 2
+    assert len(er.async_entries_for_config_entry(registry, global_entry.entry_id)) == 5
     assert er.async_entries_for_config_entry(registry, replacement.entry_id) == []
 
 
@@ -733,7 +739,7 @@ async def test_historical_ids_preserve_card_services_and_later_user_renames(
     assert registry.async_get(renamed_id).id == old_select.id
     assert registry.async_get_entity_id("switch", DOMAIN, switch_uid) == ids["switch"]
     owner = global_entry if global_coverage else local
-    assert len(er.async_entries_for_config_entry(registry, owner.entry_id)) == 2
+    assert len(er.async_entries_for_config_entry(registry, owner.entry_id)) == 5
 
 
 @pytest.mark.parametrize("remembered", [False, True])
@@ -783,14 +789,23 @@ async def test_core_cleanup_defers_the_whole_pair_and_recovers_deleted_history(
         assert er.async_entries_for_config_entry(registry, local.entry_id) == []
         registry.async_remove(historical["select"])
         await hass.async_block_till_done()
-    assert {
-        entity.domain: entity.entity_id
-        for entity in er.async_entries_for_config_entry(registry, local.entry_id)
-    } == historical
-    assert all(
-        row.options[DOMAIN][CONF_ENTITY_IDS_ADOPTED]
-        for row in er.async_entries_for_config_entry(registry, local.entry_id)
+    rows = er.async_entries_for_config_entry(registry, local.entry_id)
+    # The two controls with a core antecedent adopt their historical ID; the
+    # level select and the two numbers get their own, since they have none.
+    assert (
+        registry.async_get_entity_id(
+            "switch", DOMAIN, f"{core.unique_id}_{ENTITY_ENABLE_SUFFIX}"
+        )
+        == historical["switch"]
     )
+    assert (
+        registry.async_get_entity_id(
+            "select", DOMAIN, f"{core.unique_id}_{ENTITY_STOP_MODE_SUFFIX}"
+        )
+        == historical["select"]
+    )
+    assert len(rows) == 5
+    assert all(row.options[DOMAIN][CONF_ENTITY_IDS_ADOPTED] for row in rows)
     reload.assert_not_awaited()
 
 

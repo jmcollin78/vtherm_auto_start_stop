@@ -37,7 +37,7 @@ class AutoStartStopEnableSwitch(AutoStartStopEntity, SwitchEntity):
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:power-sleep"
-    _control_key = CONF_ENABLED
+    _control_key = "enabled"
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, vtherm_unique_id: str
@@ -50,6 +50,17 @@ class AutoStartStopEnableSwitch(AutoStartStopEntity, SwitchEntity):
     def is_on(self) -> bool:
         """Return the effective activation state."""
         return bool(self._value)
+
+    def _valid_value(self, value: object) -> bool:
+        return isinstance(value, bool)
+
+    def _decode_last_state(self, raw: str) -> bool | None:
+        if raw in ("on", "off"):
+            return raw == "on"
+        return None
+
+    def _fallback_value(self) -> bool:
+        return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable detection using the saved stop mode."""
