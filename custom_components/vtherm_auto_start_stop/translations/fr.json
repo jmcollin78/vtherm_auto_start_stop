@@ -68,12 +68,12 @@
   "entity": {
     "switch": {
       "auto_start_stop_enable": {
-        "name": "Activer le start/stop automatique"
+        "name": "auto-start/stop activation"
       }
     },
     "select": {
       "auto_start_stop_stop_mode": {
-        "name": "Mode d'arrêt du start/stop automatique",
+        "name": "auto-start/stop mode d'arrêt",
         "state": {
           "off": "Arrêt",
           "fan_only": "Ventilation seule",
@@ -81,7 +81,7 @@
         }
       },
       "auto_start_stop_level": {
-        "name": "Niveau de détection",
+        "name": "auto-start/stop niveau de détection",
         "state": {
           "auto_start_stop_very_slow": "Très lent",
           "auto_start_stop_slow": "Lent",
@@ -93,10 +93,10 @@
     },
     "number": {
       "auto_start_stop_dtmin": {
-        "name": "Durée minimum avant arrêt"
+        "name": "auto-start/stop durée minimum avant arrêt"
       },
       "auto_start_stop_error_threshold": {
-        "name": "Seuil d'erreur cumulée"
+        "name": "auto-start/stop seuil"
       }
     }
   },

@@ -28,10 +28,10 @@ drifts from the target again.
 - **Saves energy** — every automatic stop avoids useless minutes of compressor or
   boiler work.
 - **Fully automatic** — no button to press: the plugin requests the stop itself.
-- **You stay in control** — each thermostat gets an *Enable auto start/stop*
-  switch, a *Stop mode* select, a *Detection level* select and two parameter
-  numbers, right in the dashboard. The unchanged VTherm UI card operates them
-  exactly as before.
+- **You stay in control** — each thermostat gets an *auto-start/stop enable*
+  switch, an *auto-start/stop stop mode* select, an *auto-start/stop detection
+  level* select and two parameter numbers, right in the dashboard. The unchanged
+  VTherm UI card operates them exactly as before.
 - **One global configuration** covers all of your thermostats; per-thermostat
   parameter overrides are optional and never needed merely to enable a room.
 - **Standalone** — auto start/stop runs entirely as this plugin, with the
@@ -120,17 +120,20 @@ The first time you add the integration, you configure the **global settings**:
   resets it, even if you never touched it by hand. The level seed fills the two
   parameter entities the first time the thermostat is covered.
 
-Every eligible thermostat automatically receives its own set of controls:
+Every eligible thermostat automatically receives its own set of controls, all
+prefixed with **auto-start/stop** so they are grouped and sorted together in the
+interface:
 
-- **Enable auto start/stop** (switch) — turns detection on or off for that
+- **auto-start/stop enable** (switch) — turns detection on or off for that
   thermostat only, without touching its saved stop mode.
-- **Stop mode** (select) — which HVAC mode to apply when the plugin requests a
-  stop.
-- **Detection level** (select) — a *preset* that reads the level derived from
-  the two parameter entities; selecting a named level writes both parameters at
-  once.
-- **Minimum duration** and **Error threshold** (numbers) — the two detection
-  parameters themselves, editable directly and per thermostat.
+- **auto-start/stop stop mode** (select) — which HVAC mode to apply when the
+  plugin requests a stop.
+- **auto-start/stop detection level** (select) — a *preset* that reads the level
+  derived from the two parameter entities; selecting a named level writes both
+  parameters at once.
+- **auto-start/stop minimum duration before stop** and **auto-start/stop
+  threshold** (numbers) — the two detection parameters themselves, editable
+  directly and per thermostat.
 
 | Stop mode | Behaviour on an automatic stop     | Availability |
 | --------- | ---------------------------------- | ------------ |
@@ -153,7 +156,8 @@ the parameters are the criteria applied to it.
 ### 🎛️ Per-thermostat parameters (optional dedicated entries)
 
 Detection parameters are already per-thermostat: every covered thermostat has its
-own **minimum duration**, **error threshold** and **detection level** entities. A
+own **auto-start/stop minimum duration before stop**, **auto-start/stop
+threshold** and **auto-start/stop detection level** entities. A
 dedicated configuration entry is therefore optional; it only changes the
 **coverage** and the **initial seeds** of a single thermostat — it is never
 required to enable a room or to adjust a parameter.

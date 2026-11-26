@@ -7,13 +7,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import inspect
 from itertools import chain
 from typing import TYPE_CHECKING
 
+from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
+from vtherm_api.log_collector import get_vtherm_logger
 
 from .const import (
     CONF_ENTITY_IDS_ADOPTED,
@@ -52,6 +55,42 @@ if TYPE_CHECKING:
 
 def _domain_data(hass: HomeAssistant) -> dict:
     return hass.data.setdefault(DOMAIN, {})
+
+
+_LOGGER = get_vtherm_logger(__name__)
+
+
+async def async_attach_managers(hass: HomeAssistant) -> None:
+    """Attach the plugin manager to live thermostats that predate the coverage.
+
+    Creating a covering entry while Home Assistant is running adds the five
+    controls to the thermostat device, but the thermostat itself is not rebuilt,
+    so the core never instantiates the plugin manager. Without a manager the
+    controls stay unavailable until the next restart. Running the core's own
+    attachment routine attaches the manager without reloading any thermostat;
+    its ``post_init`` then reconciles the bridge the entities already filled.
+    """
+    component = hass.data.get(CLIMATE_DOMAIN)
+    entities = getattr(component, "entities", None)
+    if not entities:
+        return
+    for entity in list(entities):
+        device_info = getattr(entity, "device_info", None) or {}
+        if device_info.get("model") != VT_DOMAIN:
+            continue
+        attach = getattr(
+            entity, "async_attach_external_feature_managers", None
+        ) or getattr(entity, "_load_external_feature_managers", None)
+        if attach is None:
+            continue
+        try:
+            result = attach()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.warning(
+                "%s - could not attach the auto start/stop manager: %s", entity, exc
+            )
 
 
 def managers(hass: HomeAssistant) -> dict[str, "AutoStartStopManager"]:

@@ -68,12 +68,12 @@
     "entity": {
         "switch": {
             "auto_start_stop_enable": {
-                "name": "Enable auto start/stop"
+                "name": "auto-start/stop enable"
             }
         },
         "select": {
             "auto_start_stop_stop_mode": {
-                "name": "Auto start/stop stop mode",
+                "name": "auto-start/stop stop mode",
                 "state": {
                     "off": "Off",
                     "fan_only": "Fan only",
@@ -81,7 +81,7 @@
                 }
             },
             "auto_start_stop_level": {
-                "name": "Detection level",
+                "name": "auto-start/stop detection level",
                 "state": {
                     "auto_start_stop_very_slow": "Very slow",
                     "auto_start_stop_slow": "Slow",
@@ -93,10 +93,10 @@
         },
         "number": {
             "auto_start_stop_dtmin": {
-                "name": "Minimum duration before stop"
+                "name": "auto-start/stop minimum duration before stop"
             },
             "auto_start_stop_error_threshold": {
-                "name": "Accumulated error threshold"
+                "name": "auto-start/stop threshold"
             }
         }
     },

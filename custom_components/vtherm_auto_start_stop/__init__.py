@@ -29,6 +29,7 @@ from .factory import (
 )
 from .models import entry_config
 from .registry import (
+    async_attach_managers,
     async_reconcile_entities,
     covered_thermostats,
     entity_owner,
@@ -52,8 +53,14 @@ async def _reresolve_managers(hass: HomeAssistant) -> None:
     coverage and seeds, so re-running the managers' ``post_init`` and recreating
     the missing controls is enough. The existing managers keep their live state;
     a thermostat that gained or lost coverage gains or loses its controls here.
+
+    Creating a covering entry while Home Assistant runs does not rebuild the
+    thermostats, so a thermostat covered for the first time has no plugin
+    manager yet. Attaching the missing managers here makes its controls available
+    immediately, without waiting for a restart and without reloading anything.
     """
     await async_reconcile_entities(hass)
+    await async_attach_managers(hass)
     for unique_id in covered_thermostats(hass):
         manager = get_manager(hass, unique_id)
         if manager is not None:

@@ -18,6 +18,7 @@ from custom_components.vtherm_auto_start_stop.const import (
     PLATFORMS,
 )
 from custom_components.vtherm_auto_start_stop.registry import (
+    async_attach_managers,
     dedicated_entry,
     ensure_entities,
     get_manager,
@@ -183,3 +184,81 @@ def test_dedicated_entry_is_found_by_thermostat(fake_hass):
     fake_hass.config_entries.entries.append(entry)
     assert dedicated_entry(fake_hass, VT) is entry
     assert dedicated_entry(fake_hass, "other") is None
+
+
+class FakeVThermEntity:
+    """A live VTherm exposing the attachment routine and its model marker."""
+
+    def __init__(self, model, hook=None):
+        self.device_info = {"model": model}
+        self.hook_calls = 0
+        self._hook = hook
+
+    def _load_external_feature_managers(self):
+        self.hook_calls += 1
+        if self._hook is not None:
+            return self._hook()
+
+
+async def test_attach_managers_runs_the_core_routine_on_live_thermostats(fake_hass):
+    """A thermostat covered after startup gets its manager without a restart."""
+    from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN
+
+    from custom_components.vtherm_auto_start_stop.const import VT_DOMAIN
+
+    live = FakeVThermEntity(VT_DOMAIN)
+    other = FakeVThermEntity("other_integration")
+    fake_hass.data[CLIMATE_DOMAIN] = type(
+        "Component", (), {"entities": [live, other]}
+    )()
+
+    await async_attach_managers(fake_hass)
+
+    assert live.hook_calls == 1
+    assert other.hook_calls == 0
+
+
+async def test_attach_managers_supports_an_async_hook(fake_hass):
+    """A hook that returns an awaitable is awaited, not left pending."""
+    from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN
+
+    from custom_components.vtherm_auto_start_stop.const import VT_DOMAIN
+
+    awaited = []
+
+    async def hook():
+        awaited.append(True)
+
+    live = FakeVThermEntity(VT_DOMAIN, hook=hook)
+    fake_hass.data[CLIMATE_DOMAIN] = type("Component", (), {"entities": [live]})()
+
+    await async_attach_managers(fake_hass)
+
+    assert awaited == [True]
+
+
+async def test_attach_managers_ignores_a_missing_climate_component(fake_hass):
+    """No climate component means nothing to attach and no failure."""
+    await async_attach_managers(fake_hass)
+
+
+async def test_attach_managers_survives_a_failing_thermostat(fake_hass, caplog):
+    """One failing thermostat does not stop the others from being attached."""
+    from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN
+
+    from custom_components.vtherm_auto_start_stop.const import VT_DOMAIN
+
+    def boom():
+        raise RuntimeError("boom")
+
+    broken = FakeVThermEntity(VT_DOMAIN, hook=boom)
+    healthy = FakeVThermEntity(VT_DOMAIN)
+    fake_hass.data[CLIMATE_DOMAIN] = type(
+        "Component", (), {"entities": [broken, healthy]}
+    )()
+
+    with caplog.at_level("WARNING"):
+        await async_attach_managers(fake_hass)
+
+    assert healthy.hook_calls == 1
+    assert "could not attach" in caplog.text

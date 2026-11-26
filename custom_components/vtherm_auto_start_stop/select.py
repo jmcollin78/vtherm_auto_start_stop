@@ -130,7 +130,7 @@ class AutoStartStopLevelSelect(AutoStartStopEntity, SelectEntity):
     """
 
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:tachometer"
+    _attr_icon = "mdi:speedometer"
     _control_key = "level"
 
     def __init__(

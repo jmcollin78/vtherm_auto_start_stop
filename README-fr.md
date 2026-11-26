@@ -30,9 +30,10 @@ pièce s'écarte de la consigne.
   compresseur ou de chaudière.
 - **Entièrement automatique** — aucun bouton à presser : c'est le plugin qui
   demande l'arrêt.
-- **Vous restez maîtres** — chaque thermostat reçoit un interrupteur *Activer
-  auto start/stop*, une sélection *Mode d'arrêt*, une sélection *Niveau de
-  détection* et deux entités de paramètres, directement dans le tableau de bord.
+- **Vous restez maîtres** — chaque thermostat reçoit une entité *auto-start/stop
+  activation*, une sélection *auto-start/stop mode d'arrêt*, une sélection
+  *auto-start/stop niveau de détection* et deux entités de paramètres, directement
+  dans le tableau de bord.
   La carte UI VTherm, inchangée, les pilote exactement comme avant.
 - **Une seule configuration globale** couvre tous vos thermostats ; les
   paramètres par thermostat sont optionnels et ne sont jamais nécessaires juste
@@ -130,17 +131,21 @@ La première fois que vous ajoutez l'intégration, vous configurez les
   sauvegardé, modifier ces valeurs par défaut ne le réinitialise jamais, même
   s'il n'a jamais été touché à la main.
 
-Chaque thermostat éligible reçoit automatiquement son propre jeu de contrôles :
+Chaque thermostat éligible reçoit automatiquement son propre jeu de contrôles,
+tous préfixés par **auto-start/stop** pour être regroupés et triés ensemble dans
+l'interface :
 
-- **Activer auto start/stop** (interrupteur) — active ou désactive la détection
-  pour ce thermostat uniquement, sans toucher à son mode d'arrêt sauvegardé.
-- **Mode d'arrêt** (sélection) — le mode HVAC appliqué quand le plugin demande
-  un arrêt.
-- **Niveau de détection** (sélection) — un *préréglage* qui lit le niveau dérivé
-  des deux entités de paramètres ; choisir un niveau nommé écrit les deux
-  paramètres d'un seul geste.
-- **Durée minimale** et **Seuil d'erreur** (entités `number`) — les deux
-  paramètres de détection eux-mêmes, modifiables directement et par thermostat.
+- **auto-start/stop activation** (interrupteur) — active ou désactive la
+  détection pour ce thermostat uniquement, sans toucher à son mode d'arrêt
+  sauvegardé.
+- **auto-start/stop mode d'arrêt** (sélection) — le mode HVAC appliqué quand le
+  plugin demande un arrêt.
+- **auto-start/stop niveau de détection** (sélection) — un *préréglage* qui lit
+  le niveau dérivé des deux entités de paramètres ; choisir un niveau nommé
+  écrit les deux paramètres d'un seul geste.
+- **auto-start/stop durée minimum avant arrêt** et **auto-start/stop seuil**
+  (entités `number`) — les deux paramètres de détection eux-mêmes, modifiables
+  directement et par thermostat.
 
 | Mode d'arrêt      | Comportement à l'arrêt automatique      | Disponibilité |
 | ----------------- | --------------------------------------- | ------------- |
@@ -164,8 +169,9 @@ appliqués.
 ### 🎛️ Les paramètres par thermostat (entrées dédiées optionnelles)
 
 Les paramètres de détection sont déjà propres à chaque thermostat : chaque
-thermostat couvert possède ses entités **durée minimale**, **seuil d'erreur** et
-**niveau de détection**. Une entrée de configuration dédiée est donc optionnelle
+thermostat couvert possède ses entités **auto-start/stop durée minimum avant
+arrêt**, **auto-start/stop seuil** et **auto-start/stop niveau de détection**.
+Une entrée de configuration dédiée est donc optionnelle
 ; elle ne change que la **couverture** et les **valeurs de semence** d'un seul
 thermostat — elle n'est jamais nécessaire pour activer une pièce ni pour régler
 un paramètre.
