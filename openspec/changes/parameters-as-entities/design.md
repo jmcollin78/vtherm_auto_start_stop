@@ -234,10 +234,15 @@ Conséquences concrètes, toutes favorables :
 - une écriture de paramètre devient une opération sans effet de bord : aucune
   remise à zéro à sérialiser, donc D3 n'a plus à protéger qu'une vue cohérente.
 
-Effet conservé : la saturation. `_accumulated_error` est déjà borné à
-`±error_threshold` à chaque cycle. Abaisser le seuil borne donc l'accumulation
-existante au nouveau seuil au cycle suivant, sans la détruire. C'est le
-comportement correct : la mesure reste, son échelle se resserre.
+Effet conservé, et c'est une condition du modèle, pas un détail : le
+**plafonnement**. `_accumulated_error` reste borné à `±error_threshold` à chaque
+cycle, sans aucun redimensionnement (voir D12). C'est lui qui rend les deux sens
+de changement de niveau asymétriques :
+
+| Sens | Intégrale | Ancien seuil | Nouveau seuil | Après plafonnement | Stop immédiat ? |
+| --- | --- | --- | --- | --- | --- |
+| Lent → Rapide | 10 | 10 (saturée) | 2 | 2, donc au seuil | **possible** |
+| Rapide → Lent | 2 | 2 (saturée) | 10 | 2, donc sous le seuil | **non** |
 
 Ce qui reste réinitialisé, et pourquoi :
 
@@ -248,29 +253,60 @@ Ce qui reste réinitialisé, et pourquoi :
   l'accumulation.
 
 *Alternative écartée* : ne pas réinitialiser mais repartir d'une accumulation
-mise à l'échelle du nouveau seuil (rapport `nouveau / ancien`). Rejetée :
-invente une donnée qui n'a pas été mesurée, et complique le modèle pour un
-bénéfice nul — la saturation fait déjà le travail.
+mise à l'échelle du nouveau seuil (rapport `nouveau / ancien`). Rejetée : cette
+mise à l'échelle rendrait le passage Rapide → Lent capable de déclencher un stop
+immédiat, ce qui n'a aucun sens — l'utilisateur vient justement de demander une
+réaction moins sensible. Voir D12.
 
 *Alternative écartée* : conserver la réinitialisation et l'exposer comme une
 option. Rejetée : deux comportements à tester, à documenter et à maintenir pour
 un cas d'usage qui n'a pas été demandé.
 
-**Corollaire voulu** — le passage d'une valeur lente à une valeur plus rapide
-peut déclencher la détection dès le cycle suivant. C'est le comportement
-attendu, et il repose sur deux garde-fous qui se relâchent ensemble :
+**Corollaire voulu, dans un seul sens** — passer à un niveau plus **rapide** peut
+déclencher la détection dès le cycle suivant ; passer à un niveau plus **lent**
+ne le peut pas. Les deux scénarios de la spec sont symétriques et explicites :
+`A faster level can detect a stop on the next cycle` et
+`A slower level cannot detect a stop on the next cycle`.
 
-1. `_accumulated_error` est déjà saturé à l'ancien seuil, donc au nouveau seuil
-   plus bas il reste au-delà : la condition de seuil est satisfaite d'emblée ;
+Le mécanisme du sens rapide repose sur deux garde-fous qui se relâchent
+ensemble :
+
+1. `_accumulated_error` est déjà saturé à l'ancien seuil ; le nouveau seuil
+   étant plus bas, il reste au-delà : la condition de seuil est satisfaite
+   d'emblée ;
 2. `_last_switch_date` n'est **pas** touché par `set_params()` (vérifié dans
    `algorithm.py`), donc `minutes_since_switch` continue d'être mesuré depuis la
    dernière décision réelle. Un `dt_min` plus court est donc immédiatement
    satisfait lui aussi.
 
-Autrement dit : l'utilisateur qui choisit un niveau plus rapide demande
-explicitement une réaction plus rapide, et l'obtient sans attendre un nouveau
-cycle complet d'accumulation. C'est cohérent avec le principe de D11 — la mesure
-reste, seul le critère de lecture change.
+Dans le sens inverse, aucun des deux ne se relâche : le seuil relevé n'est plus
+atteint, et le `dt_min` allongé n'est pas satisfait. C'est exactement le
+comportement attendu : choisir un niveau plus lent, c'est demander moins de
+sensibilité, donc surtout pas un stop immédiat.
+
+### D12 — Le plafonnement reste, et n'est jamais redimensionné
+
+`_accumulated_error` reste borné à `±error_threshold` à chaque cycle
+(`algorithm.py:222-227`, comportement actuel conservé). Ce n'est pas une
+tolérance d'implémentation, c'est une **condition du modèle** : sans lui, une
+accumulation de 10 conservée à travers un passage vers le niveau `fast` (seuil 2)
+rendrait la décision de stop inévitable et sans rapport avec la situation
+observée.
+
+Le plafond est réappliqué avec le seuil **courant**, jamais avec l'ancien, et
+l'accumulation n'est jamais mise à l'échelle. Deux propriétés en découlent, qui
+sont exactement les deux scénarios de la spec :
+
+- seuil abaissé sous l'accumulation → l'accumulation est ramenée au seuil, donc
+  un stop devient possible immédiatement ;
+- seuil relevé au-dessus de l'accumulation → l'accumulation garde sa valeur,
+  donc le stop redevient improbable tant que l'écart ne s'est pas reconstitué.
+
+*Alternative écartée* : redimensionner l'accumulation au prorata
+(`accumulation × nouveau / ancien`) pour « préserver le pourcentage de
+saturation ». Rejetée : cela fabriquerait une mesure qui n'a jamais été observée,
+et surtout cela rendrait le sens Rapide → Lent capable de déclencher un stop
+immédiat — un comble pour un réglage demandant moins de sensibilité.
 
 ## Risks / Trade-offs
 
@@ -297,9 +333,10 @@ reste, seul le critère de lecture change.
   effet indésirable mais la conséquence directe et voulue du modèle : l'écart
   avait été observé, et le nouveau réglage demande simplement une réaction plus
   rapide. Mitigation : aucune n'est nécessaire ; le comportement est couvert par
-  le scénario `A faster level detects a stop on the next cycle`, qui vérifie les
-  deux garde-fous — la saturation au nouveau seuil, et le délai `dt_min` mesuré
-  depuis la dernière décision réelle et non redémarré.
+  le scénario `A faster level can detect a stop on the next cycle`, et son
+  symétrique `A slower level cannot detect a stop on the next cycle` garantit
+  que le sens inverse ne déclenche rien. Le plafonnement (D12) est ce qui rend
+  cette asymétrie fiable.
 - **Compatibilité des ID historiques étendue par erreur** → Mitigation : les
   deux tables séparées de D9, et un test qui vérifie qu'aucune des trois
   nouvelles entités n'adopte d'ID hérité.

@@ -43,10 +43,10 @@ deviennent.
   un écart de température réellement observé ; `dt_min` et le seuil sont des
   critères de lecture appliqués à cette mesure, pas la mesure elle-même. Jeter
   l'accumulation à chaque ajustement obligeait l'utilisateur à attendre un cycle
-  complet après chaque essai de réglage. La saturation au seuil courant borne
-  déjà une accumulation devenue trop grande, et passer à un niveau plus rapide
-  peut donc déclencher une détection dès le cycle suivant — ce qui est le
-  résultat attendu, pas un effet de bord.
+  complet après chaque essai de réglage. La somme reste **plafonnée** au seuil
+  courant : passer à un niveau plus rapide peut donc déclencher une détection dès
+  le cycle suivant, tandis que passer à un niveau plus lent ne le peut pas — les
+  deux comportements sont spécifiés séparément.
 - `available = False` est explicitement exclu comme mécanisme de contrôle : un
   service visant une entité indisponible est filtré en silence par Home
   Assistant. Un paramètre hors niveau personnalisé reste disponible et lisible.
@@ -82,7 +82,7 @@ dans l'entrée du thermostat. Son comportement observable ne bouge pas.
 
 ## Impact
 
-**Code** — `custom_components/vtherm_auto_start_stop/` :
+**Code** — `custom_components/vther_auto_start_stop/` :
 
 | Fichier                         | Nature                                                                               |
 | ------------------------------- | ------------------------------------------------------------------------------------ |

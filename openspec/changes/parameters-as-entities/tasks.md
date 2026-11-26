@@ -74,9 +74,15 @@
   `set_params()` et vérifier par un test que changer le niveau, `dt_min` ou le
   seuil ne modifie pas l'accumulation, y compris en la ramenant d'un seuil de 20
   à un seuil de 2 (saturation au nouveau seuil).
-- [ ] 5.2c Vérifier que `set_params()` ne touche pas `_last_switch_date`, et par
-  un test que le passage de `very_slow` à `fast` avec une accumulation saturée
-  déclenche la détection au cycle suivant sans attendre un nouveau délai complet.
+- [ ] 5.2c Vérifier que `set_params()` ne touche ni `_accumulated_error` ni
+  `_last_switch_date`, et couvrir les deux sens par un test : de `very_slow` à
+  `fast` avec une accumulation saturée, la détection peut tomber au cycle
+  suivant ; de `fast` à `very_slow`, elle ne le peut pas puisque le seuil relevé
+  n'est plus atteint.
+- [ ] 5.2d Vérifier que le plafonnement à `±error_threshold` est réappliqué avec
+  le seuil courant à chaque cycle et que l'accumulation n'est jamais mise à
+  l'échelle : un test par sens (seuil abaissé → ramené au seuil ; seuil relevé →
+  valeur conservée).
 - [ ] 5.3 Remplacer `effective_config()` par `is_covered()` dans `post_init()`
   et semer les paramètres depuis l'entrée quand aucune valeur restaurée
   n'existe ; vérifier que `pytest tests/test_manager.py` passe.

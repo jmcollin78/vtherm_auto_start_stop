@@ -61,6 +61,22 @@ The level SHALL be a preset label derived from the two parameters, not a stored 
 - **THEN** the custom minimum duration and error threshold are replaced by that level's values
 - **AND** the previous custom values are not retained anywhere
 
+### Requirement: Accumulated deviation stays bounded by the threshold
+
+The accumulated deviation SHALL remain bounded to the current error threshold, in both directions. The bound SHALL be re-applied with the current threshold on every detection cycle, so lowering the threshold bounds an existing accumulation and raising it leaves the accumulation where it is. Nothing SHALL be scaled or reconstructed from the previous threshold.
+
+#### Scenario: The accumulation never exceeds the current threshold
+
+- **WHEN** a detection cycle runs with a given error threshold
+- **THEN** the accumulated deviation is bounded to that threshold in magnitude
+- **AND** it is not scaled to preserve a ratio with the previous threshold
+
+#### Scenario: Raising the threshold does not inflate the accumulation
+
+- **WHEN** the error threshold is raised above the current accumulated deviation
+- **THEN** the accumulation keeps its current magnitude
+- **AND** it is not stretched toward the new threshold
+
 ### Requirement: Parameter changes preserve the accumulated deviation
 
 Writing a detection parameter SHALL NOT reset the accumulated deviation. The deviation measures an observed temperature gap; the parameters are reading criteria applied to it, so changing a criterion SHALL NOT discard the measurement. Only an explicit user change of the target or the preset SHALL clear the delay.
@@ -83,12 +99,19 @@ Writing a detection parameter SHALL NOT reset the accumulated deviation. The dev
 - **THEN** the new criteria apply to the deviation already accumulated
 - **AND** the deviation is not cleared
 
-#### Scenario: A faster level detects a stop on the next cycle
+#### Scenario: A faster level can detect a stop on the next cycle
 
 - **WHEN** a thermostat sits at a slow level with its deviation saturated at that level's threshold, and the user selects a faster level
-- **THEN** the deviation is bounded to the faster level's threshold at the next cycle
+- **THEN** the accumulation stays saturated, because the faster level's threshold is below the current accumulation
 - **AND** the faster level's minimum duration is measured against the time elapsed since the last decision, not restarted
-- **AND** the stop is detected on that cycle, without waiting for a new accumulation period
+- **AND** a stop may therefore be detected on that cycle, without waiting for a new accumulation period
+
+#### Scenario: A slower level cannot detect a stop on the next cycle
+
+- **WHEN** a thermostat sits at a fast level with its deviation saturated at that level's threshold, and the user selects a slower level
+- **THEN** the accumulation is no longer saturated, because the slower level's threshold is above it
+- **AND** no stop is detected on that cycle on account of the level change alone
+- **AND** detection resumes only once the accumulation reaches the new threshold again
 
 #### Scenario: An explicit target change still clears the delay
 
