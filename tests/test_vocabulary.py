@@ -65,9 +65,7 @@ def test_legacy_keys():
     assert plugin_const.THERMOSTAT_TYPE_CLIMATE == "thermostat_over_climate"
 
 
-@pytest.mark.parametrize(
-    "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
-)
+@pytest.mark.parametrize("filename", ["translations/en.json", "translations/fr.json"])
 def test_configuration_translations_match_direct_flow(filename):
     """The flow only seeds: parameters are set on the entities."""
     root = Path(plugin_const.__file__).parent
@@ -91,9 +89,7 @@ def test_configuration_translations_match_direct_flow(filename):
     assert "initial" in steps["global"]["data"][plugin_const.CONF_STOP_MODE].lower()
 
 
-@pytest.mark.parametrize(
-    "filename", ["strings.json", "translations/en.json", "translations/fr.json"]
-)
+@pytest.mark.parametrize("filename", ["translations/en.json", "translations/fr.json"])
 def test_independent_control_translations_match_entity_options(filename):
     """Every one of the five controls has its own label."""
     root = Path(plugin_const.__file__).parent
@@ -131,6 +127,33 @@ def test_independent_control_translations_match_entity_options(filename):
     for placeholder in ("{entity_id}", "{min}", "{max}", "{value}"):
         assert placeholder in bound
     assert "{level}" in exceptions["level_already_named"]["message"]
+
+
+def test_translations_carry_no_single_quoted_placeholders():
+    """Hassfest rejects ``'{placeholder}'`` in any translation value.
+
+    A custom integration ships ``translations/*.json`` as-is, so the same
+    rule applies here: the placeholder must not be wrapped in single quotes.
+    """
+    import re
+
+    forbidden = re.compile(r"'{\w+}'")
+    root = Path(plugin_const.__file__).parent
+    for path in sorted((root / "translations").glob("*.json")):
+        raw = path.read_text(encoding="utf-8")
+        assert not forbidden.search(raw), f"single-quoted placeholder in {path}"
+
+
+def test_custom_integration_ships_no_strings_json():
+    """A custom integration ships finished translations, not ``strings.json``.
+
+    ``strings.json`` is the core source format compiled into ``translations``;
+    it is never read at runtime outside core, so shipping it only exposes it to
+    validation without effect.
+    """
+    root = Path(plugin_const.__file__).parent
+    assert not (root / "strings.json").exists()
+    assert (root / "translations" / "en.json").is_file()
 
 
 def test_every_constant_is_referenced():

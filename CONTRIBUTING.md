@@ -26,7 +26,7 @@ This repository is **both** the OpenSpec hub and the full integration:
 │   ├── select.py        # the Stop mode select entity
 │   ├── entity.py        # shared base for the two control entities
 │   ├── switch.py        # the Enable auto start/stop switch entity
-│   ├── strings.json     + translations/{en,fr}.json
+│   ├── translations/{en,fr}.json  # texts (custom integrations ship finished files)
 │   └── manifest.json
 ├── tests/                           # pytest suite (pure, no Home Assistant)
 └── openspec/                        # the specification hub (see §3)

@@ -27,7 +27,7 @@ l'archive.
 │   ├── select.py        # l'entité sélection du mode d'arrêt
 │   ├── entity.py        # base commune aux deux entités de contrôle
 │   ├── switch.py        # l'entité interrupteur Activer auto start/stop
-│   ├── strings.json     + translations/{en,fr}.json
+│   ├── strings.json     + translations/{en,fr}.json  # textes (une intégration custom livre ces fichiers)
 │   └── manifest.json
 ├── tests/                           # suite pytest (pure, sans Home Assistant)
 └── openspec/                        # l'hub de spécification (voir §3)

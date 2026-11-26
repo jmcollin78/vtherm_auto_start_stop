@@ -111,7 +111,7 @@
       "message": "Valeur refusée pour {entity_id} : {value} est hors des bornes autorisées ({min} à {max})."
     },
     "level_already_named": {
-      "message": "Le niveau est déjà « {level} » : sélectionner « Personnalisé » ne changerait rien. Modifiez d'abord une durée ou un seuil."
+      "message": "Le niveau est déjà {level} : sélectionner « Personnalisé » ne changerait rien. Modifiez d’abord une durée ou un seuil."
     },
     "missing_configuration": {
       "message": "La configuration du start/stop automatique n'existe plus."
