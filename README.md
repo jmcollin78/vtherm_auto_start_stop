@@ -73,8 +73,9 @@ verdict) and the **score threshold** it must cross.
 The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 
 > The level is a **preset label derived from the two values**, not a stored
-> setting. Two entities per thermostat carry the parameters: a **minimum
-> duration** (5 → 120 minutes) and an **error threshold** (1 → 50, step 0.5).
+> setting. Two entities per thermostat carry the parameters: **auto-start/stop
+> minimum duration before stop** (5 → 120 minutes) and **auto-start/stop
+> threshold** (1 → 50, step 0.5).
 > Selecting a named level writes both values in one go; writing one value
 > yourself reclassifies the level as *Custom* when it no longer matches a named
 > pair. The level select simply reflects that pair — it never holds the truth.
@@ -114,11 +115,14 @@ The default level is **Slow (30 / 10)**, the behaviour the core feature had.
 
 The first time you add the integration, you configure the **global settings**:
 
-- **Initial level**, **initial enable** and **initial stop mode** — seeds used
+- **Initial enable** and **initial stop mode** — seeds used
   **only** while a thermostat's controls have no saved state yet (a brand-new
   thermostat). Once a control has a saved state, editing these seeds never
-  resets it, even if you never touched it by hand. The level seed fills the two
-  parameter entities the first time the thermostat is covered.
+  resets it, even if you never touched it by hand.
+
+The detection level is not part of that form: it is derived from the two
+parameter entities. A brand-new thermostat starts at the default level and,
+when migrating, is seeded once from the legacy core level.
 
 Every eligible thermostat automatically receives its own set of controls, all
 prefixed with **auto-start/stop** so they are grouped and sorted together in the
@@ -200,11 +204,12 @@ A named level is a preset: choosing it writes both parameters to that level's
 pair. Going back to *Custom* does not restore the previous values — there is no
 hidden copy of them. Set the two numbers again to get your values back.
 
-**I edited the level in the configuration entry — why did the thermostat not
+**I edited the stop mode in the configuration entry — why did the thermostat not
 change?**
-The entry now only supplies a **seed**, read when a control has no saved state.
-A covered thermostat keeps its own parameter entities; edit those (or call the
-numbers through a service) to change a running thermostat.
+The entry only supplies a **seed**, read when a control has no saved state. A
+covered thermostat keeps its own control entities; edit that thermostat's
+**auto-start/stop stop mode** select (or call the numbers through a service) to
+change a running thermostat.
 
 **Can I enable the feature for only one thermostat?**
 Yes — configure the global settings with *initial enable* off, then flip the

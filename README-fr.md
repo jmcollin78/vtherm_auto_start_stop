@@ -77,9 +77,10 @@ Le niveau par défaut est **Lent (30 / 10)**, le comportement de
 l'ancienne fonctionnalité du core.
 
 > Le niveau est une **étiquette de préréglage dérivée des deux valeurs**, pas un
-> réglage stocké. Deux entités par thermostat portent les paramètres : une
-> **durée minimale** (5 → 120 minutes) et un **seuil d'erreur** (1 → 50, pas de
-> 0,5). Choisir un niveau nommé écrit les deux valeurs d'un seul geste ; écrire
+> réglage stocké. Deux entités par thermostat portent les paramètres :
+> **auto-start/stop durée minimum avant arrêt** (5 → 120 minutes) et
+> **auto-start/stop seuil** (1 → 50, pas de 0,5). Choisir un niveau nommé écrit
+> les deux valeurs d'un seul geste ; écrire
 > une valeur vous-même reclasse le niveau en *Personnalisé* dès qu'il ne
 > correspond plus à une paire nommée. La sélection de niveau ne fait que refléter
 > cette paire — elle n'en est jamais la source de vérité.
@@ -123,13 +124,16 @@ l'ancienne fonctionnalité du core.
 La première fois que vous ajoutez l'intégration, vous configurez les
 **paramètres globaux** :
 
-- **Niveau initial** — le préréglage de détection semé la première fois qu'un
-  thermostat est couvert (il remplit ses deux entités de paramètres).
 - **Activation initiale** et **mode d'arrêt initial** — des valeurs par défaut
   utilisées **uniquement** tant que les contrôles d'un thermostat n'ont pas
   d'état sauvegardé (un thermostat nouveau). Une fois qu'un contrôle a un état
   sauvegardé, modifier ces valeurs par défaut ne le réinitialise jamais, même
   s'il n'a jamais été touché à la main.
+
+Le niveau de détection ne fait pas partie de ce formulaire : il est dérivé des
+deux entités de paramètres. Un thermostat nouveau démarre au niveau par défaut
+et, lors d'une migration, il est initialisé une fois depuis le niveau historique
+du core.
 
 Chaque thermostat éligible reçoit automatiquement son propre jeu de contrôles,
 tous préfixés par **auto-start/stop** pour être regroupés et triés ensemble dans
@@ -218,9 +222,38 @@ paire de ce niveau. Revenir à *Personnalisé* ne restaure pas les valeurs
 précédentes — il n'en existe aucune copie cachée. Réglez à nouveau les deux
 entités `number` pour retrouver vos valeurs.
 
-**J'ai changé le niveau dans l'entrée de configuration — pourquoi le thermostat
-n'a-t-il pas bougé ?**
-L'entrée ne fournit plus qu'une **semence**, lue quand un contrôle n'a pas
+**J'ai changé le mode d'arrêt dans l'entrée de configuration — pourquoi le
+thermostat n'a-t-il pas bougé ?**
+L'entrée ne fournit qu'une **semence**, lue quand un contrôle n'a pas
 d'état sauvegardé. Un thermostat couvert conserve ses propres entités de
-paramètres ; modifiez celles-ci (ou appelez les `number` par service) pour
-changer un thermostat en service.
+contrôles ; modifiez la sélection **auto-start/stop mode d'arrêt** de ce
+thermostat (ou appelez les `number` par service) pour changer un thermostat en
+service.
+
+**Puis-je activer la fonctionnalité pour un seul thermostat ?**
+Oui — configurez les paramètres globaux avec *activation initiale* désactivée,
+puis basculez l'interrupteur uniquement sur le ou les thermostats souhaités.
+Aucune entrée de configuration supplémentaire n'est créée.
+
+**Mon thermostat régulé par vanne n'est pas proposé dans le sélecteur.**
+C'est intentionnel : les thermostats `over_climate` régulés par vanne restent
+exclus, exactement comme avec la fonctionnalité du core.
+
+## 🤝 Contribuer
+
+Voir [CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
+pour la conception, le workflow OpenSpec obligatoire et les interactions avec le
+core de Versatile Thermostat.
+
+> **Note :** ce plugin remplace la fonctionnalité auto start/stop équivalente du
+> core de Versatile Thermostat, qui sera **complètement supprimée en 2027**.
+
+[commits]: https://github.com/jmcollin78/vtherm_auto_start_stop/commits/main
+[commits-shield]: https://img.shields.io/github/commit-activity/m/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[releases]: https://github.com/jmcollin78/vtherm_auto_start_stop/releases
+[releases-shield]: https://img.shields.io/github/release/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[license-shield]: https://img.shields.io/github/license/jmcollin78/vtherm_auto_start_stop.svg?style=flat-square
+[hacs]: https://hacs.xyz/
+[hacs_badge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=flat-square
+[buymecoffee]: https://www.buymeacoffee.com/jmcollin78
+[buymecoffeebadge]: https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black
