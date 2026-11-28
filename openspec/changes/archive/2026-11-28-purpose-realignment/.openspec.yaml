@@ -1,0 +1,8 @@
+# Ce change ne modifie aucun comportement observable : il ne réaligne que le
+# texte de « Purpose » de la spec principale, qui décrit encore une résolution
+# de configuration en couches supprimée par `parameters-as-entities`.
+# Aucun delta n'est donc exprimable (les deltas ne portent que sur des
+# exigences) : la spec est marquée explicitement comme non modifiée.
+schema: spec-driven
+created: 2026-11-28
+skip_specs: true

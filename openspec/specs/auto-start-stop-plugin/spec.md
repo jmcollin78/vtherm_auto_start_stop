@@ -2,45 +2,9 @@
 
 ## Purpose
 
-Defines the auto-start/stop plugin: how its configuration is layered from a global default down to a per-thermostat instance, which thermostats it may attach to, and how the attached manager detects a prolonged deviation and asks the thermostat to stop.
+Defines the auto-start-stop plugin: which thermostats it may cover, the five controls it publishes for each of them (an enable switch, a stop-mode select, a level preset derived from two parameter entities, and those minimum-duration and error-threshold numbers), and how the attached manager accumulates the deviation between the current temperature and the target to ask the thermostat to stop when it stays beyond the threshold for longer than the minimum duration.
 
 ## Requirements
-
-### Requirement: Layered configuration resolution
-
-The plugin SHALL resolve detection parameters from plugin defaults, then the global instance if present, then dedicated parameter overrides if present. Individual enable and stop-mode states SHALL belong to the thermostat's entities, not require a dedicated configuration, and remain independent of parameter inheritance.
-
-#### Scenario: Only defaults exist
-
-- **WHEN** no global and no dedicated instance exist for a thermostat
-- **THEN** the plugin has no configuration for it and attaches nothing
-
-#### Scenario: Global instance applies
-
-- **WHEN** a global instance exists and an eligible thermostat has no dedicated instance
-- **THEN** the thermostat uses the global detection parameters over the plugin defaults and receives its two controls
-
-#### Scenario: Dedicated instance wins
-
-- **WHEN** a thermostat has a dedicated instance and a global instance exists
-- **THEN** dedicated detection parameters override global parameters for the fields they define
-- **AND** neither entity's enable or stop-mode state is overwritten
-
-#### Scenario: Dedicated instance works without a global instance
-
-- **WHEN** an eligible thermostat has a dedicated instance and no global instance exists
-- **THEN** the thermostat uses its dedicated detection parameters over the plugin defaults and receives its two controls
-
-#### Scenario: Removing a dedicated instance restores the global configuration
-
-- **WHEN** a dedicated instance is removed and a global instance exists
-- **THEN** the thermostat uses the global detection parameters on the next load
-- **AND** its two controls retain their identities, enable state and stop mode
-
-#### Scenario: Removing the global instance leaves no implicit configuration
-
-- **WHEN** the global instance is removed and an eligible thermostat has no dedicated instance
-- **THEN** the plugin attaches no manager and exposes no plugin controls for that thermostat on the next load
 
 ### Requirement: Thermostat eligibility
 
@@ -111,53 +75,107 @@ Each thermostat's enable switch and stop-mode select SHALL persist their own sta
 - **THEN** the detection flag becomes false and the auto-start/stop stop request is released
 - **AND** the thermostat resumes its requested operation subject to its other controls
 
-### Requirement: Enable and stop-mode defaults initialize entities only
+### Requirement: Detection parameters as entities
 
-The global enable and stop-mode defaults SHALL initialize entities without saved state. Later changes to those defaults SHALL NOT overwrite existing entity states. Detection-parameter changes SHALL still apply to thermostats inheriting those parameters. Dedicated entries SHALL NOT be necessary for preserving individual control states.
+Each covered thermostat SHALL expose its detection parameters as writable Home Assistant entities rather than configuration-entry values: a minimum duration, an error threshold, and a level preset. Their states SHALL persist across reloads and restarts independently of any configuration entry.
+
+#### Scenario: A covered thermostat exposes three parameter entities
+
+- **WHEN** a thermostat is covered by the plugin
+- **THEN** it has one minimum-duration entity, one error-threshold entity and one level-preset entity, in addition to its enable switch and stop-mode select
+- **AND** all of them attach to the thermostat's own device
+
+#### Scenario: A parameter change takes effect without a reload
+
+- **WHEN** a user writes a new value to a minimum-duration or error-threshold entity
+- **THEN** the attached manager uses the new value from its next refresh
+- **AND** no thermostat is reloaded and no configuration entry is written
+
+#### Scenario: Parameter states survive a restart
+
+- **WHEN** the integration restarts after a user changed a parameter entity
+- **THEN** each entity restores the value the user set instead of the value seeded by the configuration entry
+
+#### Scenario: An uncovered thermostat exposes no parameter entities
+
+- **WHEN** neither the global nor a dedicated configuration covers a thermostat
+- **THEN** no minimum-duration, error-threshold or level-preset entity is exposed for it
+
+### Requirement: Level derived from the parameters
+
+The level SHALL be a preset label derived from the two parameters, not a stored source of truth. It SHALL read as a named level when the pair equals that level's values, and as `personnalise` otherwise. Selecting a named level SHALL write both parameters as one coherent change.
+
+#### Scenario: An unchanged pair reads as its named level
+
+- **WHEN** the minimum duration and error threshold equal a named level's pair
+- **THEN** the level preset reads as that named level
+
+#### Scenario: An arbitrary pair reads as personnalise
+
+- **WHEN** the minimum duration and error threshold do not equal any named level's pair
+- **THEN** the level preset reads as `personnalise`
+
+#### Scenario: Selecting a named level writes both parameters at once
+
+- **WHEN** a user selects a named level
+- **THEN** the minimum duration and error threshold are both set to that level's values
+- **AND** the level preset reads as that level
+- **AND** all five controls reflect the change together, with no intermediate state visible
+
+#### Scenario: Writing one parameter reclassifies the level
+
+- **WHEN** a user writes a single parameter that no longer matches the current named level
+- **THEN** the level preset reads as `personnalise`
+- **AND** all five controls reflect the change together, with no intermediate state visible
+
+#### Scenario: Leaving personnalise discards the custom values
+
+- **WHEN** the level preset reads as `personnalise` and the user selects a named level
+- **THEN** the custom minimum duration and error threshold are replaced by that level's values
+- **AND** the previous custom values are not retained anywhere
+
+### Requirement: Configuration defaults initialize entities only
+
+The global enable, stop-mode, level, minimum-duration and error-threshold values SHALL initialize the five control entities when they have no saved state. Later changes to those defaults SHALL NOT overwrite an existing entity state. Once initialized, a covered thermostat's detection parameters SHALL come from its own entities and SHALL NOT be inherited from a global or dedicated entry, which keeps a coverage role and a seed role only.
 
 #### Scenario: New controls use current initialization defaults
 
 - **WHEN** an eligible thermostat has no saved control states and is first covered by the global configuration
-- **THEN** its switch and select start with the current initialization defaults, restricted to supported stop modes
+- **THEN** its switch, stop-mode select, level select and two parameter numbers start with the current initialization defaults, restricted to supported stop modes and known levels
 
 #### Scenario: Changed defaults do not reset existing controls
 
-- **WHEN** existing switches and selects have saved states and the global enable or stop-mode defaults are changed
+- **WHEN** existing controls have saved states and the global defaults are changed
 - **THEN** existing entity states are retained, including after reload and restart
 - **AND** eligible thermostats added later without saved states use the new defaults
 
-#### Scenario: Detection parameters still apply globally
+#### Scenario: Detection parameters are not inherited after initialization
 
-- **WHEN** a global detection parameter changes and a thermostat has no dedicated override for that parameter
-- **THEN** the thermostat uses the new detection parameter without resetting its switch or select
+- **WHEN** a global detection parameter is changed while a covered thermostat already has parameter entity states
+- **THEN** the thermostat keeps its entity values
+- **AND** neither its controls nor its parameter entities are reset from the entry
 
-### Requirement: Direct dedicated configuration flow
+### Requirement: Parameter resolution from entities
 
-When no plugin entry exists, the config flow SHALL create global detection parameters and explicitly labelled initial control defaults. Further entries SHALL open the thermostat selector directly for optional dedicated detection parameters. Individual enable/mode actions SHALL NOT enter this flow. No exclusion entry type or configure-or-exclude menu SHALL be available. The flow SHALL expose explicit minimum duration and error threshold fields when the level is `personnalise`.
+The manager SHALL read the minimum duration and the error threshold from the thermostat's own entities and derive the level from that pair. The named-level table SHALL remain the single source of the pair written when a level is selected. An unknown level, or an unusable stored value, SHALL resolve to the default parameters without failing the refresh.
 
-#### Scenario: The first entry configures global defaults
+#### Scenario: A named level resolves to its table pair
 
-- **WHEN** a user adds the integration and no plugin entry exists
-- **THEN** the flow opens the global settings, including enable and stop-mode defaults clearly labelled as initialization-only
+- **WHEN** the level preset is one of the named levels
+- **THEN** its minimum duration and error threshold are that level's table values
+- **AND** the manager's algorithm uses exactly those values
 
-#### Scenario: Adding a dedicated instance opens the thermostat selector directly
+#### Scenario: An arbitrary pair resolves to personnalise
 
-- **WHEN** a user adds another plugin entry
-- **THEN** the flow opens the thermostat selector without an intent menu or exclusion choice
-- **AND** after an eligible thermostat is selected, the flow opens its dedicated detection-parameter settings
+- **WHEN** the two parameter entities hold a pair that matches no named level
+- **THEN** the level preset reads `personnalise`
+- **AND** the manager's algorithm uses the entity pair as-is
 
-#### Scenario: Control state is not a dedicated configuration setting
+#### Scenario: A stale or unknown parameter does not fail the refresh
 
-- **WHEN** a user wants to change an individual thermostat's enable state or stop mode
-- **THEN** its existing switch or select is sufficient and no configuration creation or editing is required
-
-#### Scenario: Custom thresholds and durations are not introduced prematurely
-
-- **WHEN** a user configures this phase-1 implementation with a named level
-- **THEN** explicit custom thresholds and durations are not required for that named level
-- **AND** the explicit minimum duration and error threshold fields are **always visible** in the form, whatever the current level is
-- **AND** those fields are pre-filled from the entry (or the plugin defaults when the entry is empty)
-- **AND** the submitted values are only applied by the resolution step when the level is `personnalise`; at a named level the algorithm uses the static table for that level and ignores the custom values, which still persist in the entry
+- **WHEN** a stored level or parameter value cannot be interpreted
+- **THEN** the resolution step falls back to the default parameters (Slow: 30 / 10)
+- **AND** the refresh cycle does not fail
 
 ### Requirement: Detection and stop request
 
@@ -182,6 +200,64 @@ The attached manager SHALL accumulate the deviation between the current temperat
 
 - **WHEN** the thermostat has been stopped by the plugin and the deviation comes back within tolerance for long enough
 - **THEN** the manager releases the stop and the thermostat resumes its requested mode
+
+### Requirement: Accumulated deviation stays bounded by the threshold
+
+The accumulated deviation SHALL remain bounded to the current error threshold, in both directions. The bound SHALL be re-applied with the current threshold on every detection cycle, so lowering the threshold bounds an existing accumulation and raising it leaves the accumulation where it is. Nothing SHALL be scaled or reconstructed from the previous threshold.
+
+#### Scenario: The accumulation never exceeds the current threshold
+
+- **WHEN** a detection cycle runs with a given error threshold
+- **THEN** the accumulated deviation is bounded to that threshold in magnitude
+- **AND** it is not scaled to preserve a ratio with the previous threshold
+
+#### Scenario: Raising the threshold does not inflate the accumulation
+
+- **WHEN** the error threshold is raised above the current accumulated deviation
+- **THEN** the accumulation keeps its current magnitude
+- **AND** it is not stretched toward the new threshold
+
+### Requirement: Parameter changes preserve the accumulated deviation
+
+Writing a detection parameter SHALL NOT reset the accumulated deviation. The deviation measures an observed temperature gap; the parameters are reading criteria applied to it, so changing a criterion SHALL NOT discard the measurement. Only an explicit user change of the target or the preset SHALL clear the delay.
+
+#### Scenario: A parameter write leaves the accumulation intact
+
+- **WHEN** a user writes the minimum duration or the error threshold between two detection cycles
+- **THEN** the accumulated deviation keeps the value it had before the write
+- **AND** the detection decision at the next cycle uses it
+
+#### Scenario: Tuning a threshold does not restart the observation
+
+- **WHEN** a user adjusts a parameter several times in a row while a stop is being approached
+- **THEN** each write leaves the accumulated deviation intact
+- **AND** the approach is not restarted by any of them
+
+#### Scenario: A new level applies to the existing observation
+
+- **WHEN** a user selects a named level whose values differ from the current parameters
+- **THEN** the new criteria apply to the deviation already accumulated
+- **AND** the deviation is not cleared
+
+#### Scenario: A faster level can detect a stop on the next cycle
+
+- **WHEN** a thermostat sits at a slow level with its deviation saturated at that level's threshold, and the user selects a faster level
+- **THEN** the accumulation stays saturated, because the faster level's threshold is below the current accumulation
+- **AND** the faster level's minimum duration is measured against the time elapsed since the last decision, not restarted
+- **AND** a stop may therefore be detected on that cycle, without waiting for a new accumulation period
+
+#### Scenario: A slower level cannot detect a stop on the next cycle
+
+- **WHEN** a thermostat sits at a fast level with its deviation saturated at that level's threshold, and the user selects a slower level
+- **THEN** the accumulation is no longer saturated, because the slower level's threshold is above it
+- **AND** no stop is detected on that cycle on account of the level change alone
+- **AND** detection resumes only once the accumulation reaches the new threshold again
+
+#### Scenario: An explicit target change still clears the delay
+
+- **WHEN** the thermostat's target temperature or preset changes
+- **THEN** the switch delay is cleared as before
+- **AND** the accumulated deviation is still not reset
 
 ### Requirement: Elapsed time from the thermostat clock
 
@@ -218,12 +294,17 @@ When the manager changes its detection state, it SHALL request an immediate stat
 
 ### Requirement: Published attributes and off-reason
 
-The plugin SHALL publish the same auto-start/stop attribute section as the core feature and SHALL use the same off-reason vocabulary, so existing cards and summaries keep working.
+The plugin SHALL publish the same auto-start/stop attribute section as the core feature and SHALL use the same off-reason vocabulary, so existing cards and summaries keep working. The published level SHALL be the derived preset, not a separately stored value.
 
 #### Scenario: The attribute section is present
 
 - **WHEN** a thermostat managed by the plugin exposes its custom attributes
 - **THEN** the auto-start/stop section contains the detection flag, the level, the minimum duration, the accumulated deviation, its threshold, the last switch date, the stop mode and the enable state
+
+#### Scenario: The published level follows the parameters
+
+- **WHEN** the two parameter entities no longer match a named level's pair
+- **THEN** the published level attribute reads `personnalise`
 
 #### Scenario: The off-reason is unchanged
 
@@ -232,30 +313,37 @@ The plugin SHALL publish the same auto-start/stop attribute section as the core 
 
 ### Requirement: Plugin entities
 
-The plugin SHALL create exactly one enable switch and one stop-mode select for each eligible thermostat covered by a global or dedicated configuration. A global configuration alone SHALL suffice for every eligible thermostat, even with its enable default false. The select SHALL offer off and supported fan_only/dry, never disabled or heat/cool/auto. The select's options SHALL reflect the modes the thermostat currently accepts.
+The plugin SHALL create exactly five controls for each eligible thermostat covered by a global or dedicated configuration: an enable switch, a stop-mode select, a level select and two parameter numbers, all on the thermostat's own device. A global configuration alone SHALL suffice. The stop-mode select SHALL offer off and supported fan_only/dry, never disabled or heat/cool/auto. The level select SHALL offer only the named levels and `personnalise`.
 
 #### Scenario: Global configuration alone creates two controls per thermostat
 
 - **WHEN** only the global configuration exists and several non-valve-regulated over_climate thermostats are present
-- **THEN** every such thermostat has exactly one enable switch and one stop-mode select
+- **THEN** every such thermostat has exactly one enable switch and one stop-mode select, plus one level select and two parameter numbers, five controls in total
 - **AND** no dedicated configuration is required or automatically created
 
 #### Scenario: Disabled initialization defaults do not suppress entities
 
 - **WHEN** only the global configuration exists, its enable default is false and eligible thermostats have no saved states
-- **THEN** every eligible thermostat has an off enable switch and a select showing its supported initial stop mode
+- **THEN** every eligible thermostat has an off enable switch, a stop-mode select showing its supported initial stop mode, a level select and two parameter numbers
 - **AND** their managers and attributes remain configured
 
 #### Scenario: A dedicated instance has two controls
 
 - **WHEN** an eligible thermostat has its own dedicated parameter instance, with or without a global instance
-- **THEN** it has one enable switch and one stop-mode select, never a second pair
+- **THEN** it has exactly one enable switch and one stop-mode select, never a second pair
+- **AND** it has a single level select and a single pair of parameter numbers
 
 #### Scenario: Options only contain compatible stop modes
 
 - **WHEN** a thermostat supports off, heat and fan_only but not dry
 - **THEN** the select options are off and fan_only in that order
 - **AND** disabled, heat and dry are not offered
+
+#### Scenario: The level select offers only named levels and personnalise
+
+- **WHEN** the level select is displayed
+- **THEN** its options are the named levels and `personnalise`
+- **AND** no `none` option is offered
 
 #### Scenario: Stop-mode options update once the accepted hvac modes settle
 
@@ -267,17 +355,17 @@ The plugin SHALL create exactly one enable switch and one stop-mode select for e
 #### Scenario: Controls and stop modes are localized
 
 - **WHEN** the controls are displayed with French or English translations
-- **THEN** the switch, select and supported stop-mode labels use the selected language
+- **THEN** the switch, both selects, both numbers and supported stop-mode labels use the selected language
 
 #### Scenario: An eligible thermostat is added after the global configuration
 
 - **WHEN** another eligible thermostat is added while the global configuration exists
-- **THEN** the plugin creates its own switch/select pair without requiring a dedicated configuration
+- **THEN** the plugin creates its own five controls without requiring a dedicated configuration
 
 #### Scenario: Ineligible thermostats have no controls
 
 - **WHEN** a thermostat is not over_climate or is valve-regulated
-- **THEN** the plugin creates neither control for it, regardless of the global defaults
+- **THEN** the plugin creates none of the five controls for it, regardless of the global defaults
 
 #### Scenario: No configuration means no controls
 
@@ -327,17 +415,18 @@ The switch SHALL reflect and control its thermostat's enable state without chang
 
 ### Requirement: Controls survive parameter-configuration changes
 
-Adding or removing a dedicated parameter configuration SHALL NOT duplicate, rename or reset an existing switch/select pair while a global configuration still covers the thermostat. Removing global coverage SHALL retain controls for thermostats still covered by dedicated parameter entries.
+Adding or removing a dedicated parameter configuration SHALL NOT duplicate, rename or reset an existing set of controls while a global configuration still covers the thermostat. Removing global coverage SHALL retain controls for thermostats still covered by dedicated parameter entries.
 
 #### Scenario: A dedicated parameter entry is added
 
-- **WHEN** a globally covered thermostat already has its two controls and a dedicated parameter entry is added
-- **THEN** the same two entities retain their IDs and saved states while the new detection parameters apply
+- **WHEN** a globally covered thermostat already has its controls and a dedicated parameter entry is added
+- **THEN** the same entities retain their IDs and saved states
 
 #### Scenario: A dedicated parameter entry is removed
 
 - **WHEN** a dedicated parameter entry is removed while global coverage remains
-- **THEN** the same controls retain their IDs and states while detection parameters revert to the global values
+- **THEN** the same controls retain their IDs and states
+- **AND** their parameter values are unchanged, since they are no longer inherited from the entry
 
 #### Scenario: The global configuration is removed
 
@@ -414,75 +503,34 @@ Upgrade SHALL preserve existing control choices, restore any missing enable swit
 
 ### Requirement: Migration from the core configuration
 
-When the plugin is configured for a thermostat that was using the core feature, the plugin SHALL adopt the core level as its own starting value and push it into the dedicated instance being created.
+When the plugin starts covering a thermostat, the level found in the thermostat entry or in the plugin entry SHALL seed the parameter entities once, and SHALL NOT overwrite a value already restored from an entity state.
 
 #### Scenario: The core level is adopted
 
-- **WHEN** a thermostat entry carries a legacy auto-start/stop level and the plugin creates its dedicated instance
-- **THEN** the plugin's instance starts at that level instead of the plugin default
+- **WHEN** a thermostat entry carries a legacy auto-start/stop level and the plugin starts covering it with no restored parameter state
+- **THEN** the parameter entities are seeded from that level's table values
+
+#### Scenario: A restored entity state wins over the seed
+
+- **WHEN** a parameter entity restores a saved state
+- **THEN** the configured seed value does not overwrite it
 
 #### Scenario: The legacy level is not reused twice
 
-- **WHEN** the plugin instance already exists
-- **THEN** a subsequent configuration does not overwrite its level from the legacy value
-
-### Requirement: Phase-2 parameter readiness
-
-The plugin SHALL resolve algorithm parameters through a single resolution step keyed on the configured level. When the level is `personnalise`, the step SHALL read the explicit minimum duration and error threshold from the effective configuration, falling back to the named level's values when a custom value is absent. An unknown level SHALL resolve to the default parameters without failing the refresh.
-
-#### Scenario: A known level resolves to its parameters
-
-- **WHEN** the configured level is one of the named levels
-- **THEN** the resolution step returns that level's minimum duration and threshold
-- **AND** when the level is `personnalise` and the effective configuration carries explicit custom values, the step returns those exact values instead of a named level's pair
-
-#### Scenario: An unknown or custom level is handled
-
-- **WHEN** the configured level is not one of the named levels and is not `personnalise`
-- **THEN** the resolution step returns the default parameters without failing the refresh
-
-#### Scenario: The personnalise level falls back on absent custom values
-
-- **WHEN** the resolved level is `personnalise` and the effective configuration does not carry one of the two custom values (e.g. a hand-rewritten entry that lost the keys, while the normal UI flow always populates them)
-- **THEN** that value resolves to the plugin defaults (Slow: 30 / 10), without failing the refresh
-
-#### Scenario: The personnalise level reads from the effective configuration
-
-- **WHEN** the resolved level is `personnalise` and the layered resolution has merged custom values from a global and a dedicated instance
-- **THEN** the resolution step returns the merged minimum duration and error threshold of the effective configuration
+- **WHEN** the plugin already covered the thermostat and its parameter entities have states
+- **THEN** a subsequent configuration does not reset them from the legacy value
 
 ### Requirement: Personnalise level parameter bounds
 
-The `personnalise` level SHALL accept a minimum duration between 5 and 120 minutes and an error threshold between 1 and 50. Values outside these bounds SHALL be refused or clamped with an explicit validation error.
+The minimum-duration entity SHALL accept a range of 5 to 120 minutes and the error-threshold entity a range of 1 to 50. A value outside these bounds SHALL be refused with an explicit validation error, leaving the previous value and the accumulated deviation untouched.
 
 #### Scenario: Out-of-range values are refused or clamped
 
-- **WHEN** a user submits a minimum duration below 5 minutes or above 120 minutes
-- **THEN** the flow rejects the value or clamps it to the valid bounds and displays an explicit validation error
+- **WHEN** a user writes a minimum duration below 5 minutes or above 120 minutes
+- **THEN** the write is refused with an explicit error and the entity keeps its previous value
 - **AND** the same applies to an error threshold below 1 or above 50
 
-### Requirement: Custom value persistence across level switches
+#### Scenario: A refused value does not disturb detection
 
-Custom minimum duration and error threshold values SHALL persist in the configuration entry when the user switches away from `personnalise`, so that switching back to `personnalise` later re-presents the previously saved values without re-entering them.
-
-#### Scenario: Leaving personnalise retains the custom values
-
-- **WHEN** a thermostat is configured at `personnalise` with custom minimum duration and error threshold values, and the user switches its level to a named level
-- **THEN** the thermostat resolves with the named level's parameters
-- **AND** the custom values persist in the configuration entry
-- **AND** switching back to `personnalise` later re-presents the persisted values as pre-filled values in the flow
-
-### Requirement: Removal of the none level
-
-The configuration vocabulary SHALL NOT offer a `none` auto-start/stop level, because the feature's enable switch already controls activation. Configuration entries storing the historical `none` value SHALL resolve to the default parameters without any migration of the stored value.
-
-#### Scenario: The none level is not offered
-
-- **WHEN** a user configures or edits a global or dedicated instance
-- **THEN** the level selector offers only the named detection levels and `personnalise`, never a `none` level
-
-#### Scenario: An existing none entry resolves to the default parameters
-
-- **WHEN** an existing configuration entry stores the historical `none` level value
-- **THEN** the plugin resolves the default parameters for it without failing the refresh
-- **AND** the stored value is not rewritten and no entry migration runs
+- **WHEN** an out-of-bounds write is refused
+- **THEN** the accumulated deviation and the current level are unchanged

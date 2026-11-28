@@ -100,8 +100,7 @@ dans l'entrée du thermostat. Son comportement observable ne bouge pas.
 `test_setup.py`, `test_entity_state.py`, `test_manager.py` et `test_registry.py`
 sont adaptés ; nouveaux tests de dérivation et d'atomicité.
 
-**Spécifications** — remplace cinq exigences de `auto-start-stop-plugin` et en
-ajoute deux ; vérifie `auto-start-stop-delegation`.
+**Spécifications** — réécrit cinq exigences de `auto-start-stop-plugin` (`Plugin entities`, `Personnalise level parameter bounds`, `Controls survive parameter-configuration changes`, `Migration from the core configuration`, `Published attributes and off-reason`) et en ajoute six, dont les deux remplacements explicites des exigences retirées (`Configuration defaults initialize entities only` et `Parameter resolution from entities`) ; vérifie `auto-start-stop-delegation`.
 
 **Dépendances** — aucune nouvelle. `vtherm_api >= 0.13.1` inchangé.
 

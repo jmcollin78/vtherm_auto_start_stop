@@ -119,7 +119,111 @@ Writing a detection parameter SHALL NOT reset the accumulated deviation. The dev
 - **THEN** the switch delay is cleared as before
 - **AND** the accumulated deviation is still not reset
 
+### Requirement: Configuration defaults initialize entities only
+
+The global enable, stop-mode, level, minimum-duration and error-threshold values SHALL initialize the five control entities when they have no saved state. Later changes to those defaults SHALL NOT overwrite an existing entity state. Once initialized, a covered thermostat's detection parameters SHALL come from its own entities and SHALL NOT be inherited from a global or dedicated entry, which keeps a coverage role and a seed role only.
+
+#### Scenario: New controls use current initialization defaults
+
+- **WHEN** an eligible thermostat has no saved control states and is first covered by the global configuration
+- **THEN** its switch, stop-mode select, level select and two parameter numbers start with the current initialization defaults, restricted to supported stop modes and known levels
+
+#### Scenario: Changed defaults do not reset existing controls
+
+- **WHEN** existing controls have saved states and the global defaults are changed
+- **THEN** existing entity states are retained, including after reload and restart
+- **AND** eligible thermostats added later without saved states use the new defaults
+
+#### Scenario: Detection parameters are not inherited after initialization
+
+- **WHEN** a global detection parameter is changed while a covered thermostat already has parameter entity states
+- **THEN** the thermostat keeps its entity values
+- **AND** neither its controls nor its parameter entities are reset from the entry
+
+### Requirement: Parameter resolution from entities
+
+The manager SHALL read the minimum duration and the error threshold from the thermostat's own entities and derive the level from that pair. The named-level table SHALL remain the single source of the pair written when a level is selected. An unknown level, or an unusable stored value, SHALL resolve to the default parameters without failing the refresh.
+
+#### Scenario: A named level resolves to its table pair
+
+- **WHEN** the level preset is one of the named levels
+- **THEN** its minimum duration and error threshold are that level's table values
+- **AND** the manager's algorithm uses exactly those values
+
+#### Scenario: An arbitrary pair resolves to personnalise
+
+- **WHEN** the two parameter entities hold a pair that matches no named level
+- **THEN** the level preset reads `personnalise`
+- **AND** the manager's algorithm uses the entity pair as-is
+
+#### Scenario: A stale or unknown parameter does not fail the refresh
+
+- **WHEN** a stored level or parameter value cannot be interpreted
+- **THEN** the resolution step falls back to the default parameters (Slow: 30 / 10)
+- **AND** the refresh cycle does not fail
+
 ## MODIFIED Requirements
+
+### Requirement: Plugin entities
+
+The plugin SHALL create exactly five controls for each eligible thermostat covered by a global or dedicated configuration: an enable switch, a stop-mode select, a level select and two parameter numbers, all on the thermostat's own device. A global configuration alone SHALL suffice. The stop-mode select SHALL offer off and supported fan_only/dry, never disabled or heat/cool/auto. The level select SHALL offer only the named levels and `personnalise`.
+
+#### Scenario: Global configuration alone creates two controls per thermostat
+
+- **WHEN** only the global configuration exists and several non-valve-regulated over_climate thermostats are present
+- **THEN** every such thermostat has exactly one enable switch and one stop-mode select, plus one level select and two parameter numbers, five controls in total
+- **AND** no dedicated configuration is required or automatically created
+
+#### Scenario: Disabled initialization defaults do not suppress entities
+
+- **WHEN** only the global configuration exists, its enable default is false and eligible thermostats have no saved states
+- **THEN** every eligible thermostat has an off enable switch, a stop-mode select showing its supported initial stop mode, a level select and two parameter numbers
+- **AND** their managers and attributes remain configured
+
+#### Scenario: A dedicated instance has two controls
+
+- **WHEN** an eligible thermostat has its own dedicated parameter instance, with or without a global instance
+- **THEN** it has exactly one enable switch and one stop-mode select, never a second pair
+- **AND** it has a single level select and a single pair of parameter numbers
+
+#### Scenario: Options only contain compatible stop modes
+
+- **WHEN** a thermostat supports off, heat and fan_only but not dry
+- **THEN** the select options are off and fan_only in that order
+- **AND** disabled, heat and dry are not offered
+
+#### Scenario: The level select offers only named levels and personnalise
+
+- **WHEN** the level select is displayed
+- **THEN** its options are the named levels and `personnalise`
+- **AND** no `none` option is offered
+
+#### Scenario: Stop-mode options update once the accepted hvac modes settle
+
+- **WHEN** a manager was registered before the underlying climate of an over_climate attached, so the select initially exposes only the fallback options
+- **AND** the underlying later attaches and exposes more accepted hvac modes such as fan_only or dry
+- **THEN** the plugin re-publishes the select state so it gains the newly supported stop modes
+- **AND** the user does not need to restart or interact with the control to see the updated options
+
+#### Scenario: Controls and stop modes are localized
+
+- **WHEN** the controls are displayed with French or English translations
+- **THEN** the switch, both selects, both numbers and supported stop-mode labels use the selected language
+
+#### Scenario: An eligible thermostat is added after the global configuration
+
+- **WHEN** another eligible thermostat is added while the global configuration exists
+- **THEN** the plugin creates its own five controls without requiring a dedicated configuration
+
+#### Scenario: Ineligible thermostats have no controls
+
+- **WHEN** a thermostat is not over_climate or is valve-regulated
+- **THEN** the plugin creates none of the five controls for it, regardless of the global defaults
+
+#### Scenario: No configuration means no controls
+
+- **WHEN** neither a global configuration nor a dedicated parameter configuration covers a thermostat
+- **THEN** no plugin manager or plugin control is exposed for it
 
 ### Requirement: Personnalise level parameter bounds
 
